@@ -1,0 +1,45 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'hashmap_benchmark'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=hashmap_benchmark",
+                    "--package=hashmap_benchmark"
+                ],
+                "filter": {
+                    "name": "hashmap_benchmark",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'hashmap_benchmark'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=hashmap_benchmark",
+                    "--package=hashmap_benchmark"
+                ],
+                "filter": {
+                    "name": "hashmap_benchmark",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
