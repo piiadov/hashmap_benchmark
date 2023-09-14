@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 nohash-hasher = "0.2"
+indexmap = "2.0"
+fnv = "1.0.7"
