@@ -1,10 +1,13 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-//use indexmap::IndexMap;
+//use rayon::prelude::*;
+use indexmap::IndexMap;
+
 use nohash_hasher::BuildNoHashHasher;
 use std::collections::HashMap;
 use std::time::Instant;
+
 
 #[derive(Debug)]
 struct Capybara {
@@ -13,18 +16,16 @@ struct Capybara {
 }
 
 impl Capybara {
-    pub fn new(a: usize) -> Capybara {
-        Capybara {
-            a , 
-            b:a
-        }
+    pub fn new(a: usize) -> Option<Capybara> {
+        Some(Capybara {a, b:a})
+        //None
     }
 }
 
 #[derive(Debug)]
 struct Cell {
     p: usize,
-    capybara: Capybara,
+    capybara: Option<Capybara>,
 }
 
 impl Cell {
@@ -38,13 +39,13 @@ impl Cell {
 
 
 struct CellsMap {
-    map: HashMap::<usize, Cell, BuildNoHashHasher<usize>>,
+    map: IndexMap::<usize, Cell, BuildNoHashHasher<usize>>,
 }
 
 impl CellsMap {
     pub fn new(size: usize) -> CellsMap {
         CellsMap {
-            map: HashMap::with_capacity_and_hasher(size, BuildNoHashHasher::default()),
+            map: IndexMap::with_capacity_and_hasher(size, BuildNoHashHasher::default()),
         }
     }
 }
@@ -63,6 +64,7 @@ fn test2(size: usize, tests_num: usize) {
     }
 
     println!("----- Lookup performance -----");
+
     let mut cmap = CellsMap::new(size);
     for i in 0_usize..size {                
         cmap.map.insert(i, Cell::new(i));
@@ -70,12 +72,71 @@ fn test2(size: usize, tests_num: usize) {
 
     // lookup cells
     let t0 = Instant::now();
-    let selected_cells: Vec<_> = cmap.map.iter().filter(|cell| {
-        cell.1.p > 30000 && cell.1.p < 100000
+
+    let mut selected_cells: Vec<(&usize, &mut Cell)> = cmap.map.iter_mut().filter(|cell| {
+        cell.1.p >=1 && cell.1.p < 10
     }).collect();
+
     let elapsed = t0.elapsed().as_secs_f64();
     println!("Time elapsed: {:.3} sec", elapsed);
-    println!("{:?}", &selected_cells[100]);
+
+    // Check changes in &Capybara borrowing capybara from Cell
+    let num = 3usize;
+
+    println!("{:?}", &selected_cells[num]);
+
+    //let cap = cmap.map.capacity();
+    //println!("Capacity: {:?}", cmap.map.capacity());
+
+    let c_opt = selected_cells[num].1.capybara.as_mut();
+    match c_opt {
+        None => println!("No capybara in cell {}", num),
+        Some(c) => {
+            println!("Capybara in selected cell {}: {:?}", num, c);
+            // change in capybara
+            c.a = 555;
+            println!("Capybara changed: {:?}", c);
+        },
+    }
+    
+    // Check if capybara keep changes
+    let c_opt2 = selected_cells[num].1.capybara.as_mut();
+    println!("Capybara keep the change: {:?}", c_opt2);
+    
+    // Check changes in a Cell from CellsMap
+    println!("{:?}", selected_cells[num].1);
+    selected_cells[num].1.p = 123;
+    println!("{:?}", selected_cells[num].1);
+
+    println!("CellsMap capacity: {:?}", &cmap.map.capacity());
+
+    // Mutable slices
+    println!("\nMutable slices:\n");
+
+    let slice_opt = cmap.map.get_range_mut(0..2);
+    match slice_opt {
+        None => println!("Something went wrong with get_range_mut on CellsMap"),
+        Some(slice) => {
+
+            println!("{:?}", slice[0]);
+            slice[0].p = 11;
+            println!("{:?}", slice[0]);
+
+            let a = & slice[0];
+            let b = & slice[1];
+            
+            println!("{:?}", a);
+
+        },
+    }
+
+
+
+
+
+
+
+
 }
 
 fn test1(size: usize, tests_num: usize) {
@@ -111,7 +172,7 @@ fn test1(size: usize, tests_num: usize) {
 }
 
 fn main() {
-    let size: usize = 100_000_000;
+    let size: usize = 15;
     let tests_num = 5;
 
     println!("HashMap size: {}", size);
