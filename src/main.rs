@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 //use rayon::prelude::*;
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 
 use nohash_hasher::BuildNoHashHasher;
 use std::collections::HashMap;
@@ -114,38 +114,38 @@ fn test2(size: usize, tests_num: usize) {
 
     {
         // Mutable slices
-        println!("\nMutable slices:\n");
+        println!("\nMutable slices, keep owner:\n");
 
         let mut cmap = CellsMap::new(size);
         for i in 0_usize..size {                
             cmap.map.insert(i, Cell::new(i));
         }
 
-        let mut selected_cells: Vec<Cell> = cmap.map.into_values().filter(|cell| {
+        let mut selected_cells: Vec<&mut Cell> = cmap.map.values_mut().filter(|cell| {
             cell.p >=10 && cell.p < 20
         }).collect();
-        
-        let r1 = &mut selected_cells[0] as *mut Cell;
-        let r2 = &mut selected_cells[1] as *mut Cell;
+
+        let r1 = &mut selected_cells as *mut Vec<&mut Cell>;
+        let r2 = &mut selected_cells as *mut Vec<&mut Cell>;
 
         unsafe {
-            println!("raw pointer: {:?}", *r1);
-            println!("raw pointer: {:?}", *r2);
-
-            (&mut *r1).p = 222;
-            (&mut *r2).p = 333;
-
-            (&mut *r1).capybara.as_mut().unwrap().a = 55;
-        
+            (&mut *r1)[0].p = 222;
         }
-        println!("{:?}", selected_cells[0]);
-        println!("{:?}", selected_cells[1]);
+
+        unsafe {
+            (&mut *r2)[1].p = 333;
+        }
+
+        println!("Selected cells: {:?}", selected_cells[0]);
+        println!("Selected cells: {:?}", selected_cells[1]);
+
+        println!("CellsMap: {:?}", cmap.map.get_index(10)); // Finally, CellsMap data is not borrowed
     }
 
     // Mutable slices
     println!("\nThreads:\n");
 
-    
+
 
 
 
@@ -189,7 +189,7 @@ fn test1(size: usize, tests_num: usize) {
 }
 
 fn main() {
-    let size: usize = 15;
+    let size: usize = 20;
     let tests_num = 5;
 
     println!("HashMap size: {}", size);
