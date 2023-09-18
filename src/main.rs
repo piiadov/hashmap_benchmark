@@ -63,72 +63,89 @@ fn test2(size: usize, tests_num: usize) {
         println!("Time elapsed: {:.3} sec", elapsed);
     }
 
-    println!("----- Lookup performance -----");
+    {
+        println!("----- Lookup performance -----");
 
-    let mut cmap = CellsMap::new(size);
-    for i in 0_usize..size {                
-        cmap.map.insert(i, Cell::new(i));
+        let mut cmap = CellsMap::new(size);
+        for i in 0_usize..size {                
+            cmap.map.insert(i, Cell::new(i));
+        }
+
+        // lookup cells
+    
+        let t0 = Instant::now();
+
+        let mut selected_cells: Vec<(&usize, &mut Cell)> = cmap.map.iter_mut().filter(|cell| {
+            cell.1.p >=1 && cell.1.p < 10
+        }).collect();
+
+        let elapsed = t0.elapsed().as_secs_f64();
+        println!("Time elapsed: {:.3} sec", elapsed);
+
+        // Check changes in &Capybara borrowing capybara from Cell
+        let num = 3usize;
+
+        println!("{:?}", &selected_cells[num]);
+
+        //println!("Capacity: {:?}", cmap.map.capacity());
+
+        let c_opt = selected_cells[num].1.capybara.as_mut();
+        match c_opt {
+            None => println!("No capybara in cell {}", num),
+            Some(c) => {
+                println!("Capybara in selected cell {}: {:?}", num, c);
+                // change in capybara
+                c.a = 555;
+                println!("Capybara changed: {:?}", c);
+            },
+        }
+        
+        // Check if capybara keep changes
+        let c_opt2 = selected_cells[num].1.capybara.as_mut();
+        println!("Capybara keep the change: {:?}", c_opt2);
+        
+        // Check changes in a Cell from CellsMap
+        println!("{:?}", selected_cells[num].1);
+        selected_cells[num].1.p = 123;
+        println!("{:?}", selected_cells[num].1);
+
+        println!("CellsMap capacity: {:?}", &cmap.map.capacity());
     }
 
-    // lookup cells
-    let t0 = Instant::now();
+    {
+        // Mutable slices
+        println!("\nMutable slices:\n");
 
-    let mut selected_cells: Vec<(&usize, &mut Cell)> = cmap.map.iter_mut().filter(|cell| {
-        cell.1.p >=1 && cell.1.p < 10
-    }).collect();
+        let mut cmap = CellsMap::new(size);
+        for i in 0_usize..size {                
+            cmap.map.insert(i, Cell::new(i));
+        }
 
-    let elapsed = t0.elapsed().as_secs_f64();
-    println!("Time elapsed: {:.3} sec", elapsed);
+        let mut selected_cells: Vec<Cell> = cmap.map.into_values().filter(|cell| {
+            cell.p >=10 && cell.p < 20
+        }).collect();
+        
+        let r1 = &mut selected_cells[0] as *mut Cell;
+        let r2 = &mut selected_cells[1] as *mut Cell;
 
-    // Check changes in &Capybara borrowing capybara from Cell
-    let num = 3usize;
+        unsafe {
+            println!("raw pointer: {:?}", *r1);
+            println!("raw pointer: {:?}", *r2);
 
-    println!("{:?}", &selected_cells[num]);
+            (&mut *r1).p = 222;
+            (&mut *r2).p = 333;
 
-    //let cap = cmap.map.capacity();
-    //println!("Capacity: {:?}", cmap.map.capacity());
-
-    let c_opt = selected_cells[num].1.capybara.as_mut();
-    match c_opt {
-        None => println!("No capybara in cell {}", num),
-        Some(c) => {
-            println!("Capybara in selected cell {}: {:?}", num, c);
-            // change in capybara
-            c.a = 555;
-            println!("Capybara changed: {:?}", c);
-        },
+            (&mut *r1).capybara.as_mut().unwrap().a = 55;
+        
+        }
+        println!("{:?}", selected_cells[0]);
+        println!("{:?}", selected_cells[1]);
     }
-    
-    // Check if capybara keep changes
-    let c_opt2 = selected_cells[num].1.capybara.as_mut();
-    println!("Capybara keep the change: {:?}", c_opt2);
-    
-    // Check changes in a Cell from CellsMap
-    println!("{:?}", selected_cells[num].1);
-    selected_cells[num].1.p = 123;
-    println!("{:?}", selected_cells[num].1);
-
-    println!("CellsMap capacity: {:?}", &cmap.map.capacity());
 
     // Mutable slices
-    println!("\nMutable slices:\n");
+    println!("\nThreads:\n");
 
-    let slice_opt = cmap.map.get_range_mut(0..2);
-    match slice_opt {
-        None => println!("Something went wrong with get_range_mut on CellsMap"),
-        Some(slice) => {
-
-            println!("{:?}", slice[0]);
-            slice[0].p = 11;
-            println!("{:?}", slice[0]);
-
-            let a = & slice[0];
-            let b = & slice[1];
-            
-            println!("{:?}", a);
-
-        },
-    }
+    
 
 
 
