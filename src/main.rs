@@ -1,14 +1,14 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
+use crossbeam;
 use indexmap::IndexMap;
 use nohash_hasher::BuildNoHashHasher;
-use crossbeam;
+use rand::Rng;
 use std::thread;
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ struct Capybara {
 
 impl Capybara {
     pub fn new(a: usize) -> Option<Capybara> {
-        Some(Capybara {a, b:a})
+        Some(Capybara { a, b: a })
         //None
     }
 }
@@ -31,17 +31,16 @@ struct Cell {
 }
 
 impl Cell {
-    pub fn new(p: usize) -> Cell{
-        Cell { 
+    pub fn new(p: usize) -> Cell {
+        Cell {
             p,
             capybara: Capybara::new(p),
         }
     }
 }
 
-
 struct CellsMap {
-    map: IndexMap::<usize, Cell, BuildNoHashHasher<usize>>,
+    map: IndexMap<usize, Cell, BuildNoHashHasher<usize>>,
 }
 
 impl CellsMap {
@@ -58,7 +57,7 @@ fn test2(size: usize, tests_num: usize) {
     for _ in 0..tests_num {
         let mut cmap = CellsMap::new(size);
         let t0 = Instant::now();
-        for i in 0_usize..size {                
+        for i in 0_usize..size {
             cmap.map.insert(i, Cell::new(i));
         }
         let elapsed = t0.elapsed().as_secs_f64();
@@ -69,17 +68,19 @@ fn test2(size: usize, tests_num: usize) {
         println!("----- Lookup performance -----");
 
         let mut cmap = CellsMap::new(size);
-        for i in 0_usize..size {                
+        for i in 0_usize..size {
             cmap.map.insert(i, Cell::new(i));
         }
 
         // lookup cells
-    
+
         let t0 = Instant::now();
 
-        let mut selected_cells: Vec<(&usize, &mut Cell)> = cmap.map.iter_mut().filter(|cell| {
-            cell.1.p >=1 && cell.1.p < 10
-        }).collect();
+        let mut selected_cells: Vec<(&usize, &mut Cell)> = cmap
+            .map
+            .iter_mut()
+            .filter(|cell| cell.1.p >= 1 && cell.1.p < 10)
+            .collect();
 
         let elapsed = t0.elapsed().as_secs_f64();
         println!("Time elapsed: {:.3} sec", elapsed);
@@ -99,13 +100,13 @@ fn test2(size: usize, tests_num: usize) {
                 // change in capybara
                 c.a = 555;
                 println!("Capybara changed: {:?}", c);
-            },
+            }
         }
-        
+
         // Check if capybara keep changes
         let c_opt2 = selected_cells[num].1.capybara.as_mut();
         println!("Capybara keep the change: {:?}", c_opt2);
-        
+
         // Check changes in a Cell from CellsMap
         println!("{:?}", selected_cells[num].1);
         selected_cells[num].1.p = 123;
@@ -119,13 +120,15 @@ fn test2(size: usize, tests_num: usize) {
         println!("\nMutable slices, keep owner:\n");
 
         let mut cmap = CellsMap::new(size);
-        for i in 0_usize..size {                
+        for i in 0_usize..size {
             cmap.map.insert(i, Cell::new(i));
         }
 
-        let mut selected_cells: Vec<&mut Cell> = cmap.map.values_mut().filter(|cell| {
-            cell.p >=10 && cell.p < 20
-        }).collect();
+        let mut selected_cells: Vec<&mut Cell> = cmap
+            .map
+            .values_mut()
+            .filter(|cell| cell.p >= 10 && cell.p < 20)
+            .collect();
 
         let r = &mut selected_cells as *mut Vec<&mut Cell>;
 
@@ -148,50 +151,51 @@ fn test2(size: usize, tests_num: usize) {
     println!("\nThreads:\n");
 
     let mut cmap = CellsMap::new(size);
-    for i in 0_usize..size {                
+    for i in 0_usize..size {
         cmap.map.insert(i, Cell::new(i));
     }
 
-    let mut selected_cells: Vec<Arc<Mutex<&mut Cell>>> = cmap.map.values_mut().filter(|cell| {
-        cell.p >=10 && cell.p < 15
-    }).map(|cell| {Arc::new(Mutex::new(cell))}).collect();
+    let mut selected_cells: Vec<Arc<Mutex<&mut Cell>>> = cmap
+        .map
+        .values_mut()
+        .filter(|cell| cell.p >= 10 && cell.p < 15)
+        .map(|cell| Arc::new(Mutex::new(cell)))
+        .collect();
 
     println!("Main thread id: {:?}", thread::current().id());
     crossbeam::scope(|s| {
-        
         let mtx = &mut selected_cells[0];
         for i in 0..5 {
-            
             let m = Arc::clone(&mtx);
             s.spawn(move |_| {
+                let num = rand::thread_rng().gen_range(10..500);
+                thread::sleep(Duration::from_millis(num));
+
                 let mut mlock = m.lock().unwrap();
-                
-                mlock.p = 333;
-                mlock.capybara.as_mut().unwrap().a = 111;
 
+                mlock.p = rand::thread_rng().gen_range(100..500);
+                mlock.capybara.as_mut().unwrap().a = rand::thread_rng().gen_range(100..500);
                 println!("{:?}:  {:?}", thread::current().id(), mlock);
-                thread::sleep(Duration::from_millis(50));
-
             });
         }
-
-    }).unwrap();
+    })
+    .unwrap();
 
     println!("Selected cells: {:?}", selected_cells[0]);
     println!("CellsMap: {:?}", cmap.map.get_index(10)); // Finally, CellsMap data is not borrowed
-   
 }
 
 fn test1(size: usize, tests_num: usize) {
     println!("\n===== TEST 1 =====");
     //let mut hm: HashMap::<usize, Cell> = HashMap::new();
     //let mut hm: HashMap::<usize, Cell, BuildNoHashHasher<usize>> = HashMap::with_capacity_and_hasher(size, BuildNoHashHasher::default());
-    let mut hm: HashMap::<usize, Cell, BuildNoHashHasher<usize>> = HashMap::with_hasher(BuildNoHashHasher::default());
-    {    
+    let mut hm: HashMap<usize, Cell, BuildNoHashHasher<usize>> =
+        HashMap::with_hasher(BuildNoHashHasher::default());
+    {
         println!("----- Write HashMap/BuildNoHashHasher (nohash-hasher 0.2.0) -----");
         for _ in 0..tests_num {
             let t0 = Instant::now();
-            for i in 0_usize..size {                
+            for i in 0_usize..size {
                 hm.insert(i, Cell::new(i));
             }
             let elapsed = t0.elapsed().as_secs_f64();
@@ -219,8 +223,7 @@ fn main() {
     let tests_num = 5;
 
     println!("HashMap size: {}", size);
-    
+
     test1(size, tests_num);
     test2(size, tests_num);
-
 }
