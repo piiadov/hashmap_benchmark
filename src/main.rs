@@ -51,6 +51,18 @@ impl CellsMap {
     }
 }
 
+struct World {
+    map: IndexMap<usize, Arc<Mutex<Cell>>, BuildNoHashHasher<usize>>,
+}
+
+impl World {
+    pub fn new(size: usize) -> World {
+        World {
+            map: IndexMap::with_capacity_and_hasher(size, BuildNoHashHasher::default()),
+        }
+    }
+}
+
 fn test2(size: usize, tests_num: usize) {
     println!("\n===== TEST 2 =====");
     println!("----- Write CellsMap performance-----");
@@ -146,43 +158,94 @@ fn test2(size: usize, tests_num: usize) {
 
         println!("CellsMap: {:?}", cmap.map.get_index(10)); // Finally, CellsMap data is not borrowed
     }
+    
+    {
+        // Mutable cells in threads
+        println!("\nThreads:\n");
 
-    // Mutable cells in threads
-    println!("\nThreads:\n");
+        let mut cmap = CellsMap::new(size);
+        for i in 0_usize..size {
+            cmap.map.insert(i, Cell::new(i));
+        }
 
-    let mut cmap = CellsMap::new(size);
-    for i in 0_usize..size {
-        cmap.map.insert(i, Cell::new(i));
+        let mut selected_cells: Vec<Arc<Mutex<&mut Cell>>> = cmap
+            .map
+            .values_mut()
+            .filter(|cell| cell.p >= 10 && cell.p < 15)
+            .map(|cell| Arc::new(Mutex::new(cell)))
+            .collect();
+
+        println!("Main thread id: {:?}", thread::current().id());
+        crossbeam::scope(|s| {
+            let mtx = &mut selected_cells[0];
+            for i in 0..5 {
+                let m = Arc::clone(&mtx);
+                s.spawn(move |_| {
+                    let num = rand::thread_rng().gen_range(10..50);
+                    thread::sleep(Duration::from_millis(num));
+
+                    let mut mlock = m.lock().unwrap();
+
+                    mlock.p = rand::thread_rng().gen_range(100..500);
+                    mlock.capybara.as_mut().unwrap().a = rand::thread_rng().gen_range(100..500);
+                    println!("{:?}:  {:?}", thread::current().id(), mlock);
+                });
+            }
+        })
+        .unwrap();
+
+        println!("Selected cells: {:?}", selected_cells[0]);
+        println!("CellsMap: {:?}", cmap.map.get_index(10));
     }
 
-    let mut selected_cells: Vec<Arc<Mutex<&mut Cell>>> = cmap
-        .map
-        .values_mut()
-        .filter(|cell| cell.p >= 10 && cell.p < 15)
-        .map(|cell| Arc::new(Mutex::new(cell)))
-        .collect();
+    println!("\nThreads access to random cell:\n");
 
-    println!("Main thread id: {:?}", thread::current().id());
+    let mut world = World::new(size);
+    for i in 0_usize..size {
+        world.map.insert(i, Arc::new(Mutex::new(Cell::new(i))));
+    }
+
+    
+    let selected_cells: Vec<&mut Arc<Mutex<Cell>>> = world
+    .map
+    .values_mut()
+    .filter(|cell| { 
+        let m = cell.lock().unwrap();
+        m.p >= 10 && m.p < 15
+    })
+    .collect();
+
+
     crossbeam::scope(|s| {
-        let mtx = &mut selected_cells[0];
-        for i in 0..5 {
-            let m = Arc::clone(&mtx);
+        for chunk in selected_cells.chunks(2){
+            
             s.spawn(move |_| {
-                let num = rand::thread_rng().gen_range(10..500);
-                thread::sleep(Duration::from_millis(num));
 
-                let mut mlock = m.lock().unwrap();
+                
+                {   // mutate "own" cell from chunk
+                    let mut m = chunk[0].lock().unwrap();
+                    m.p = 222;
+                }
+                println!("Chunk {:?}", chunk);
 
-                mlock.p = rand::thread_rng().gen_range(100..500);
-                mlock.capybara.as_mut().unwrap().a = rand::thread_rng().gen_range(100..500);
-                println!("{:?}:  {:?}", thread::current().id(), mlock);
+                {   // mutate any cell from the world
+
+                    //let a = world.map.first().unwrap().1;
+
+
+                }
             });
         }
+    
+        
+
     })
     .unwrap();
 
-    println!("Selected cells: {:?}", selected_cells[0]);
-    println!("CellsMap: {:?}", cmap.map.get_index(10)); // Finally, CellsMap data is not borrowed
+    println!("\nSelected cells: {:?}", selected_cells[0]);
+    println!("World: {:?}", world.map.get_index(10));
+    
+
 }
 
 fn test1(size: usize, tests_num: usize) {
