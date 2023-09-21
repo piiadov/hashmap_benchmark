@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 nohash-hasher = "0.2"
 indexmap = "2.0"
-rayon = "1.7"
+crossbeam = "0.8"
+rand = "0.8.5"

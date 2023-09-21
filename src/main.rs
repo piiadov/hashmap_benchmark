@@ -1,13 +1,15 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-//use rayon::prelude::*;
-use indexmap::{IndexMap, IndexSet};
 
-use nohash_hasher::BuildNoHashHasher;
 use std::collections::HashMap;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, Duration};
 
+use indexmap::IndexMap;
+use nohash_hasher::BuildNoHashHasher;
+use crossbeam;
+use std::thread;
 
 #[derive(Debug)]
 struct Capybara {
@@ -125,15 +127,15 @@ fn test2(size: usize, tests_num: usize) {
             cell.p >=10 && cell.p < 20
         }).collect();
 
-        let r1 = &mut selected_cells as *mut Vec<&mut Cell>;
-        let r2 = &mut selected_cells as *mut Vec<&mut Cell>;
+        let r = &mut selected_cells as *mut Vec<&mut Cell>;
 
         unsafe {
-            (&mut *r1)[0].p = 222;
+            (&mut *r)[0].p = 222;
+            (&mut *r)[0].capybara.as_mut().unwrap().a = 55;
         }
 
         unsafe {
-            (&mut *r2)[1].p = 333;
+            (&mut *r)[1].p = 333;
         }
 
         println!("Selected cells: {:?}", selected_cells[0]);
@@ -142,18 +144,42 @@ fn test2(size: usize, tests_num: usize) {
         println!("CellsMap: {:?}", cmap.map.get_index(10)); // Finally, CellsMap data is not borrowed
     }
 
-    // Mutable slices
+    // Mutable cells in threads
     println!("\nThreads:\n");
 
+    let mut cmap = CellsMap::new(size);
+    for i in 0_usize..size {                
+        cmap.map.insert(i, Cell::new(i));
+    }
 
+    let mut selected_cells: Vec<Arc<Mutex<&mut Cell>>> = cmap.map.values_mut().filter(|cell| {
+        cell.p >=10 && cell.p < 15
+    }).map(|cell| {Arc::new(Mutex::new(cell))}).collect();
 
+    println!("Main thread id: {:?}", thread::current().id());
+    crossbeam::scope(|s| {
+        
+        let mtx = &mut selected_cells[0];
+        for i in 0..5 {
+            
+            let m = Arc::clone(&mtx);
+            s.spawn(move |_| {
+                let mut mlock = m.lock().unwrap();
+                
+                mlock.p = 333;
+                mlock.capybara.as_mut().unwrap().a = 111;
 
+                println!("{:?}:  {:?}", thread::current().id(), mlock);
+                thread::sleep(Duration::from_millis(50));
 
+            });
+        }
 
+    }).unwrap();
 
-
-
-
+    println!("Selected cells: {:?}", selected_cells[0]);
+    println!("CellsMap: {:?}", cmap.map.get_index(10)); // Finally, CellsMap data is not borrowed
+   
 }
 
 fn test1(size: usize, tests_num: usize) {
