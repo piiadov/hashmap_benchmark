@@ -288,6 +288,7 @@ fn test2(size: usize, tests_num: usize) {
     struct Area {
         key: usize,
         key_capybara: Option<usize>,
+        param: usize,
     }
 
     impl Area {
@@ -295,6 +296,7 @@ fn test2(size: usize, tests_num: usize) {
             Area {
                 key,
                 key_capybara: None,
+                param: 0,
             }
         }
     }
@@ -343,6 +345,7 @@ fn test2(size: usize, tests_num: usize) {
     let t0 = Instant::now();
     let keys = population.keys().collect::<Vec<&usize>>();
     crossbeam::scope(|s| {
+        let world = &world;
         let population = &population;
         for keys_chunk in keys.chunks(3) {
             s.spawn(move |_| {
@@ -366,7 +369,13 @@ fn test2(size: usize, tests_num: usize) {
 
                 {
                     // Mutate area
-                    // todo
+                    let m = population.get(k).unwrap().lock().unwrap();
+                    let mut w = world.get(&m.key_area).unwrap().lock().unwrap();
+                    w.param = 555;
+                }
+
+                {
+                    // Mark capybara to move
                 }
 
                 println!(
@@ -383,6 +392,9 @@ fn test2(size: usize, tests_num: usize) {
     .unwrap();
     let elapsed = t0.elapsed().as_secs_f64();
     println!("Time elapsed: {:.3} sec", elapsed);
+
+    // move capybaras if to_move == Some(key_area)
+    // todo
 
     // remove capybaras if to_remove == true
     population.retain(|_, v| {
