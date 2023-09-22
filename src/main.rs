@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use crossbeam;
 use indexmap::IndexMap;
 use nohash_hasher::BuildNoHashHasher;
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use std::thread;
 
 fn test2(size: usize, tests_num: usize) {
@@ -267,69 +267,76 @@ fn test2(size: usize, tests_num: usize) {
 
     #[derive(Debug)]
     struct Capybara {
-        a: usize,
-        b: usize,
+        key: usize,
+        key_area: usize,
         to_remove: bool,
+        param: usize,
     }
 
     impl Capybara {
-        pub fn new(param: usize) -> Capybara {
+        pub fn new(key: usize, key_area: usize) -> Capybara {
             Capybara {
-                a: param,
-                b: param,
+                key,
+                key_area,
                 to_remove: false,
+                param: 0,
             }
         }
     }
 
     #[derive(Debug)]
     struct Area {
-        p: usize,
-        capybara: Option<Capybara>,
+        key: usize,
+        key_capybara: Option<usize>,
     }
 
     impl Area {
-        pub fn new(p: usize) -> Area {
-            Area { p, capybara: None }
+        pub fn new(key: usize) -> Area {
+            Area {
+                key,
+                key_capybara: None,
+            }
         }
     }
-    
+
     type World = IndexMap<usize, Mutex<Area>, BuildNoHashHasher<usize>>;
     type Population = IndexMap<usize, Mutex<Capybara>, BuildNoHashHasher<usize>>;
 
     let mut world: World = IndexMap::with_hasher(BuildNoHashHasher::default());
     let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
-    
+
+    let world_size = 20usize;
+    let pop_size = 10usize;
+
     // Fill world with areas
-    for i in 0..size {
+    for i in 0..world_size {
         world.insert(i, Mutex::new(Area::new(i)));
     }
-    println!("World size: {:?}", world.len());
 
-    // Create 10 capybaras
-    for i in 0..size/2 {
-        population.insert(i, Mutex::new(Capybara::new(i)));
-    }
-    println!("Population size: {:?}", population.len());
-
-    // Place capybaras in areas
+    // Create capybaras in areas
     let mut rng = rand::thread_rng();
     let mut world_keys = world.keys().copied().collect::<Vec<_>>();
     world_keys.shuffle(&mut rng);
-    world_keys.truncate(population.len());
+    world_keys.truncate(pop_size);
     let mut irange = 0..world_keys.len();
     for k in world_keys {
         let i = irange.next().unwrap();
         let a = world.get_mut(&k).unwrap().get_mut().unwrap();
-        //a.capybara = population.;
-        println!("Area: {:?}, {:?}", a, population.get_mut(&i));
-
-        // TODO: How to wire Area from world with Capybara from population
-
+        let m_opt = population.insert(i, Mutex::from(Capybara::new(i, k)));
+        match m_opt {
+            Some(c) => panic!("Error: Cannot area already contains capybara {:?}", c),
+            None => a.key_capybara = Some(i),
+        }
     }
 
-
-
+    world
+        .iter()
+        .for_each(|(k, v)| println!("Area key: {}, {:?}", k, v));
+    population
+        .iter()
+        .for_each(|(k, v)| println!("Capybara key: {}, {:?}", k, v));
+    println!("World size: {:?}", world.len());
+    println!("Population size: {:?}", population.len());
 
     // Process capybaras in threads
     println!("\nThreads start:");
@@ -346,10 +353,22 @@ fn test2(size: usize, tests_num: usize) {
                 let k = *keys_chunk.first().unwrap();
 
                 {
-                    // mutate any capybara (first from the key_chunk)
+                    // Mutate any capybara (first from the key_chunk)
                     let mut m = population.get(k).unwrap().lock().unwrap();
-                    m.a = rand::thread_rng().gen_range(0..500);
+                    m.param = rand::thread_rng().gen_range(0..500);
                 }
+                
+                {
+                    // Mark any capybara (first from the key_chunk) to remove
+                    let mut m = population.get(k).unwrap().lock().unwrap();
+                    m.to_remove = true;
+                }
+
+                {
+                    // Mutate area
+                    // todo
+                }
+
                 println!(
                     "{:?}, sleep: {}, key: {}, {:?}",
                     thread_id,
@@ -358,11 +377,6 @@ fn test2(size: usize, tests_num: usize) {
                     population.get(k).unwrap()
                 );
 
-                {
-                    // mark any capybara (first from the key_chunk) to remove
-                    let mut m = population.get(k).unwrap().lock().unwrap();
-                    m.to_remove = true;
-                }
             });
         }
     })
@@ -370,8 +384,22 @@ fn test2(size: usize, tests_num: usize) {
     let elapsed = t0.elapsed().as_secs_f64();
     println!("Time elapsed: {:.3} sec", elapsed);
 
-    // remove capybaras if to_remove == true   retain, keys, par_keys
-    population.retain(|_, m| !m.get_mut().unwrap().to_remove);
+    // remove capybaras if to_remove == true
+    population.retain(|_, v| {
+        // clean from corresponding area
+        let capybara = v.get_mut().unwrap();
+        if capybara.to_remove {
+            world
+                .get_mut(&capybara.key_area)
+                .unwrap()
+                .get_mut()
+                .unwrap()
+                .key_capybara = None;
+            false
+        } else {
+            true
+        }
+    });
 
     println!(
         "\nPopulation of {}, first: {:?}",
@@ -379,39 +407,14 @@ fn test2(size: usize, tests_num: usize) {
         population[0]
     );
 
-    // let selected_cells: Vec<&mut Mutex<Area>> = world
-    // .layout
-    // .values_mut()
-    // .filter(|cell| {
-    //     let m = cell.lock().unwrap();
-    //     m.p >= 10 && m.p < 15
-    // })
-    // .collect();
-
-    // crossbeam::scope(|s| {
-    //     for chunk in selected_cells.chunks(2){
-
-    //         s.spawn(move |_| {
-
-    //             {   // mutate "own" cell from chunk
-    //                 let mut m = chunk[0].lock().unwrap();
-    //                 m.p = 222;
-    //             }
-    //             println!("Chunk {:?}", chunk);
-
-    //             {   // mutate any cell from the world
-
-    //                 //let a = world.map.first().unwrap().1;
-
-    //             }
-    //         });
-    //     }
-
-    // })
-    // .unwrap();
-
-    // println!("\nSelected cells: {:?}", selected_cells[0]);
-    // println!("World: {:?}", world.layout.get_index(10));
+    world
+        .iter()
+        .for_each(|(k, v)| println!("Area key: {}, {:?}", k, v));
+    population
+        .iter()
+        .for_each(|(k, v)| println!("Capybara key: {}, {:?}", k, v));
+    println!("World size: {:?}", world.len());
+    println!("Population size: {:?}", population.len());
 }
 
 fn main() {
