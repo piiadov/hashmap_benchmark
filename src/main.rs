@@ -1,15 +1,14 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crossbeam;
 use indexmap::IndexMap;
-use indexmap::map::MutableKeys;
 use nohash_hasher::BuildNoHashHasher;
 use rand::Rng;
+use rand::seq::SliceRandom;
 use std::thread;
 
 fn test2(size: usize, tests_num: usize) {
@@ -275,66 +274,95 @@ fn test2(size: usize, tests_num: usize) {
 
     impl Capybara {
         pub fn new(param: usize) -> Capybara {
-            Capybara { a: param, b: param, to_remove: false }
+            Capybara {
+                a: param,
+                b: param,
+                to_remove: false,
+            }
         }
     }
 
-    // #[derive(Debug)]
-    // struct Area {
-    //     p: usize,
-    // }
-
-    // impl Area {
-    //     pub fn new(p: usize) -> Area {
-    //         Area { p }
-    //     }
-    // }
-
-    // struct World {
-    //     layout: IndexMap<usize, Mutex<Area>, BuildNoHashHasher<usize>>,
-    // }
-
-    // impl World {
-    //     pub fn new(size: usize) -> Arc<World> {
-    //         Arc::new(World {
-    //             layout: IndexMap::with_capacity_and_hasher(size, BuildNoHashHasher::default()),
-    //         })
-    //     }
-    // }
-
-    type Population = IndexMap<usize, Mutex<Capybara>, BuildNoHashHasher<usize>>;
-
-    let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
-    for i in 0..10usize {
-        population.insert(i, Mutex::new(Capybara::new(i)));
+    #[derive(Debug)]
+    struct Area {
+        p: usize,
+        capybara: Option<Capybara>,
     }
 
-    let keys = population.keys().collect::<Vec<&usize>>();
+    impl Area {
+        pub fn new(p: usize) -> Area {
+            Area { p, capybara: None }
+        }
+    }
     
+    type World = IndexMap<usize, Mutex<Area>, BuildNoHashHasher<usize>>;
+    type Population = IndexMap<usize, Mutex<Capybara>, BuildNoHashHasher<usize>>;
 
+    let mut world: World = IndexMap::with_hasher(BuildNoHashHasher::default());
+    let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
+    
+    // Fill world with areas
+    for i in 0..size {
+        world.insert(i, Mutex::new(Area::new(i)));
+    }
+    println!("World size: {:?}", world.len());
+
+    // Create 10 capybaras
+    for i in 0..size/2 {
+        population.insert(i, Mutex::new(Capybara::new(i)));
+    }
+    println!("Population size: {:?}", population.len());
+
+    // Place capybaras in areas
+    let mut rng = rand::thread_rng();
+    let mut world_keys = world.keys().copied().collect::<Vec<_>>();
+    world_keys.shuffle(&mut rng);
+    world_keys.truncate(population.len());
+    let mut irange = 0..world_keys.len();
+    for k in world_keys {
+        let i = irange.next().unwrap();
+        let a = world.get_mut(&k).unwrap().get_mut().unwrap();
+        //a.capybara = population.;
+        println!("Area: {:?}, {:?}", a, population.get_mut(&i));
+
+        // TODO: How to wire Area from world with Capybara from population
+
+    }
+
+
+
+
+    // Process capybaras in threads
+    println!("\nThreads start:");
     let t0 = Instant::now();
+    let keys = population.keys().collect::<Vec<&usize>>();
     crossbeam::scope(|s| {
         let population = &population;
-        
         for keys_chunk in keys.chunks(3) {
             s.spawn(move |_| {
                 let thread_id = format!("{:?}", thread::current().id());
                 let num = rand::thread_rng().gen_range(0..500);
                 thread::sleep(Duration::from_millis(num));
-                
+
                 let k = *keys_chunk.first().unwrap();
-                
-                {   // mutate any capybara (first from the key_chunk)
+
+                {
+                    // mutate any capybara (first from the key_chunk)
                     let mut m = population.get(k).unwrap().lock().unwrap();
                     m.a = rand::thread_rng().gen_range(0..500);
                 }
-                println!("{:?}, sleep: {}, key: {}, {:?}", thread_id, num, k, population.get(k).unwrap());
-                
-                {   // mark any capybara (first from the key_chunk) to remove
+                println!(
+                    "{:?}, sleep: {}, key: {}, {:?}",
+                    thread_id,
+                    num,
+                    k,
+                    population.get(k).unwrap()
+                );
+
+                {
+                    // mark any capybara (first from the key_chunk) to remove
                     let mut m = population.get(k).unwrap().lock().unwrap();
                     m.to_remove = true;
                 }
-                
             });
         }
     })
@@ -344,12 +372,6 @@ fn test2(size: usize, tests_num: usize) {
 
     // remove capybaras if to_remove == true   retain, keys, par_keys
     population.retain(|_, m| !m.get_mut().unwrap().to_remove);
-
-
-    // let mut world = World::new(size);
-    // for i in 0_usize..size {
-    //     world.layout.insert(i, Mutex::new(Area::new(i)));
-    // }
 
     println!(
         "\nPopulation of {}, first: {:?}",
