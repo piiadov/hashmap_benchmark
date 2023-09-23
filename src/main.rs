@@ -270,6 +270,7 @@ fn test2(size: usize, tests_num: usize) {
         key: usize,
         key_area: usize,
         to_remove: bool,
+        to_move: Option<usize>,
         param: usize,
     }
 
@@ -279,6 +280,7 @@ fn test2(size: usize, tests_num: usize) {
                 key,
                 key_area,
                 to_remove: false,
+                to_move: None,
                 param: 0,
             }
         }
@@ -288,6 +290,7 @@ fn test2(size: usize, tests_num: usize) {
     struct Area {
         key: usize,
         key_capybara: Option<usize>,
+        vacant: bool,
         param: usize,
     }
 
@@ -296,6 +299,7 @@ fn test2(size: usize, tests_num: usize) {
             Area {
                 key,
                 key_capybara: None,
+                vacant: true,
                 param: 0,
             }
         }
@@ -317,7 +321,7 @@ fn test2(size: usize, tests_num: usize) {
 
     // Create capybaras in areas
     let mut rng = rand::thread_rng();
-    let mut world_keys = world.keys().copied().collect::<Vec<_>>();
+    let mut world_keys = world.keys().copied().collect::<Vec<usize>>();
     world_keys.shuffle(&mut rng);
     world_keys.truncate(pop_size);
     let mut irange = 0..world_keys.len();
@@ -327,7 +331,10 @@ fn test2(size: usize, tests_num: usize) {
         let m_opt = population.insert(i, Mutex::from(Capybara::new(i, k)));
         match m_opt {
             Some(c) => panic!("Error: Cannot area already contains capybara {:?}", c),
-            None => a.key_capybara = Some(i),
+            None => {
+                a.key_capybara = Some(i);
+                a.vacant = false;
+            }
         }
     }
 
@@ -354,13 +361,12 @@ fn test2(size: usize, tests_num: usize) {
                 thread::sleep(Duration::from_millis(num));
 
                 let k = *keys_chunk.first().unwrap();
-
                 {
                     // Mutate any capybara (first from the key_chunk)
                     let mut m = population.get(k).unwrap().lock().unwrap();
                     m.param = rand::thread_rng().gen_range(0..500);
                 }
-                
+
                 {
                     // Mark any capybara (first from the key_chunk) to remove
                     let mut m = population.get(k).unwrap().lock().unwrap();
@@ -376,6 +382,16 @@ fn test2(size: usize, tests_num: usize) {
 
                 {
                     // Mark capybara to move
+                    let key_target_area = rand::thread_rng().gen_range(0..world.len());
+                    let k = *keys_chunk.last().unwrap();
+                    if *k != key_target_area {
+                        let mut w = world.get(&key_target_area).unwrap().lock().unwrap();
+                        if w.vacant == true && w.key_capybara.is_none() {
+                            let mut m = population.get(k).unwrap().lock().unwrap();
+                            w.vacant = false;
+                            m.to_move = Some(key_target_area);
+                        }
+                    }
                 }
 
                 println!(
@@ -385,7 +401,6 @@ fn test2(size: usize, tests_num: usize) {
                     k,
                     population.get(k).unwrap()
                 );
-
             });
         }
     })
@@ -394,7 +409,21 @@ fn test2(size: usize, tests_num: usize) {
     println!("Time elapsed: {:.3} sec", elapsed);
 
     // move capybaras if to_move == Some(key_area)
-    // todo
+    population.iter_mut().for_each(|(k, v)| {
+        let capybara = v.get_mut().unwrap();
+        if capybara.to_move.is_some() {
+            let current_area = world
+                .get_mut(&capybara.key_area)
+                .unwrap()
+                .get_mut()
+                .unwrap();
+            current_area.key_capybara = None;
+            current_area.vacant = true;
+            let key_target_area = capybara.to_move.unwrap();
+            capybara.key_area = key_target_area;
+            capybara.to_move = None;
+        }
+    });
 
     // remove capybaras if to_remove == true
     population.retain(|_, v| {
@@ -427,7 +456,9 @@ fn test2(size: usize, tests_num: usize) {
         .for_each(|(k, v)| println!("Capybara key: {}, {:?}", k, v));
     println!("World size: {:?}", world.len());
     println!("Population size: {:?}", population.len());
+
 }
+
 
 fn main() {
     let size: usize = 20;
