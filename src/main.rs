@@ -187,12 +187,6 @@ fn patterns() -> (World, Population) {
         }
     });
 
-    println!(
-        "\nPopulation of {}, first: {:?}",
-        population.len(),
-        population[0]
-    );
-
     world
         .iter()
         .for_each(|(k, v)| println!("Area key: {}, {:?}", k, v));
@@ -205,6 +199,18 @@ fn patterns() -> (World, Population) {
     (world, population)
 }
 
+fn integrity_test(world: World, population: Population) {
+    // 1. correct key_area <-> key_capybara
+    // 2. correct vacant in areas
+    // 3. correct to_remove, to_move
+
+
+
+}
+
+
 fn main() {
     let (world, population) = patterns();
+    integrity_test(world, population);
+    // todo: performance test
 }
