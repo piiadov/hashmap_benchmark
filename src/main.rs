@@ -2,14 +2,14 @@
 #![allow(dead_code)]
 
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crossbeam;
 use indexmap::IndexMap;
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::thread;
+use std::{thread, mem};
 
 #[derive(Debug)]
 struct Capybara {
@@ -35,6 +35,7 @@ struct Area {
     key_capybara: Option<usize>,
     vacant: bool,
     param: usize,
+    smth: f64,
 }
 
 impl Area {
@@ -43,6 +44,7 @@ impl Area {
             key_capybara: None,
             vacant: true,
             param: 0,
+            smth: 123.123,
         }
     }
 }
@@ -50,21 +52,23 @@ impl Area {
 type World = IndexMap<usize, Mutex<Area>, BuildNoHashHasher<usize>>;
 type Population = IndexMap<usize, Mutex<Capybara>, BuildNoHashHasher<usize>>;
 
-fn patterns() -> (World, Population) {
-    println!("\nThreads access to random cell:\n");
-
-    let mut world: World = IndexMap::with_hasher(BuildNoHashHasher::default());
-    let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
-
-    let world_size = 20usize;
-    let pop_size = 10usize;
-
+fn fill_world_population(
+    world: &mut World,
+    population: &mut Population,
+    world_size: usize,
+    pop_size: usize,
+) {
     // Fill world with areas
+    print!("Create areas: ");
+    let t0 = Instant::now();
     for i in 0..world_size {
         world.insert(i, Mutex::new(Area::new()));
     }
+    println!("{:.3} sec", t0.elapsed().as_secs_f64());
 
     // Create capybaras in areas
+    print!("Create population: ");
+    let t0 = Instant::now();
     let mut rng = rand::thread_rng();
     let mut world_keys = world.keys().copied().collect::<Vec<usize>>();
     world_keys.shuffle(&mut rng);
@@ -82,28 +86,26 @@ fn patterns() -> (World, Population) {
             }
         }
     }
+    println!("{:.3} sec", t0.elapsed().as_secs_f64());
+}
 
-    world
-        .iter()
-        .for_each(|(k, v)| println!("Area key: {}, {:?}", k, v));
-    population
-        .iter()
-        .for_each(|(k, v)| println!("Capybara key: {}, {:?}", k, v));
-    println!("World size: {:?}", world.len());
-    println!("Population size: {:?}", population.len());
-
-    // Process capybaras in threads
-    println!("\nThreads start:");
+fn threads_processing(
+    world: &mut World,
+    population: &mut Population,
+    pop_chunk_size: usize,
+    verbose: bool,
+) {
+    println!("Threads start...");
     let t0 = Instant::now();
     let keys = population.keys().collect::<Vec<&usize>>();
     crossbeam::scope(|s| {
         let world = &world;
         let population = &population;
-        for keys_chunk in keys.chunks(3) {
+        for keys_chunk in keys.chunks(pop_chunk_size) {
             s.spawn(move |_| {
                 let thread_id = format!("{:?}", thread::current().id());
-                let num = rand::thread_rng().gen_range(0..500);
-                thread::sleep(Duration::from_millis(num));
+                //let num = rand::thread_rng().gen_range(0..500);
+                //thread::sleep(Duration::from_millis(num));
 
                 let k = *keys_chunk.first().unwrap();
                 {
@@ -139,22 +141,26 @@ fn patterns() -> (World, Population) {
                     }
                 }
 
-                println!(
-                    "{:?}, sleep: {}, key: {}, {:?}",
-                    thread_id,
-                    num,
-                    k,
-                    population.get(k).unwrap()
-                );
+                if verbose {
+                    println!(
+                        "{:?}, sleep: {}, key: {}, {:?}",
+                        thread_id,
+                        0,
+                        k,
+                        population.get(k).unwrap()
+                    );
+                }
             });
         }
     })
     .unwrap();
-    let elapsed = t0.elapsed().as_secs_f64();
-    println!("Time elapsed: {:.3} sec", elapsed);
+    let thread_eps = t0.elapsed().as_secs_f64();
+    println!("Thread time: {:.3} sec", thread_eps);
 
     // move capybaras if to_move == Some(key_area)
-    population.iter_mut().for_each(|(_, v)| {
+    print!("Moving capybaras: ");
+    let t0 = Instant::now();
+    population.iter_mut().for_each(|(key, v)| {
         let capybara = v.get_mut().unwrap();
         if capybara.to_move.is_some() {
             let current_area = world
@@ -164,53 +170,158 @@ fn patterns() -> (World, Population) {
                 .unwrap();
             current_area.key_capybara = None;
             current_area.vacant = true;
+
             let key_target_area = capybara.to_move.unwrap();
             capybara.key_area = key_target_area;
             capybara.to_move = None;
+
+            let target_area = world.get_mut(&key_target_area).unwrap().get_mut().unwrap();
+            target_area.key_capybara = Some(*key);
         }
     });
+    let move_eps = t0.elapsed().as_secs_f64();
+    println!("{:.3} sec", move_eps);
 
     // remove capybaras if to_remove == true
+    print!("Removing capybaras: ");
+    let t0 = Instant::now();
     population.retain(|_, v| {
         // clean from corresponding area
         let capybara = v.get_mut().unwrap();
         if capybara.to_remove {
-            world
+            let area = world
                 .get_mut(&capybara.key_area)
                 .unwrap()
                 .get_mut()
-                .unwrap()
-                .key_capybara = None;
+                .unwrap();
+            area.key_capybara = None;
+            area.vacant = true;
             false
         } else {
             true
         }
     });
-
-    world
-        .iter()
-        .for_each(|(k, v)| println!("Area key: {}, {:?}", k, v));
-    population
-        .iter()
-        .for_each(|(k, v)| println!("Capybara key: {}, {:?}", k, v));
-    println!("World size: {:?}", world.len());
-    println!("Population size: {:?}", population.len());
-
-    (world, population)
+    let remove_eps = t0.elapsed().as_secs_f64();
+    println!("{:.3} sec", remove_eps);
+    println!("Time elapsed: {:.3} sec", thread_eps + move_eps + remove_eps);
 }
 
-fn integrity_test(world: World, population: Population) {
-    // 1. correct key_area <-> key_capybara
-    // 2. correct vacant in areas
-    // 3. correct to_remove, to_move
+fn structure_test(world: &World, population: &Population, verbose: bool) {
+    print!("Structure test... ");
+    if verbose {
+        println!();
+        world
+            .iter()
+            .for_each(|(k, v)| println!("Area key: {}, {:?}", k, v));
+        population
+            .iter()
+            .for_each(|(k, v)| println!("Capybara key: {}, {:?}", k, v));
+        println!("World size: {:?}", world.len());
+        println!("Population size: {:?}", population.len());
+    }
 
+    population.iter().for_each(|(key_capybara, v)| {
+        let m = v.lock().unwrap();
+        let area_opt = world.get(&m.key_area);
+        match area_opt {
+            None => panic!("Capybara contains incorrect key_area"),
+            Some(area_mtx) => {
+                let w = area_mtx.lock().unwrap();
+                assert!(
+                    w.key_capybara.is_some(),
+                    "capybara {} linked to area which does not have correct key_capybara",
+                    key_capybara
+                );
+                assert!(
+                    *key_capybara == w.key_capybara.unwrap(),
+                    "capibara's key does not match corresponding area's key"
+                );
+            }
+        }
+        if m.to_remove {
+            panic!("capybara {} .to_remove must be false", key_capybara);
+        }
+        if m.to_move.is_some() {
+            panic!("capybara {} .to_move must be None", key_capybara);
+        }
+    });
+    let mut i = 0;
+    world.iter().for_each(|(key_area, v)| {
+        let w = v.lock().unwrap();
+        if w.key_capybara.is_some() {
+            i += 1;
+            let m = population
+                .get(&w.key_capybara.unwrap())
+                .unwrap()
+                .lock()
+                .unwrap();
+            assert!(
+                *key_area == m.key_area,
+                "area's key does not match corresponding capibara's key_area"
+            );
+        }
+        if w.vacant {
+            assert!(
+                w.key_capybara.is_none(),
+                "area {} is vacant but has capybara {}",
+                key_area,
+                w.key_capybara.unwrap()
+            );
+        } else {
+            assert!(
+                w.key_capybara.is_some(),
+                "area {} is not vacant and does not have capybara",
+                key_area
+            );
+        }
+    });
+    assert!(
+        i == population.len(),
+        "areas containing capybara_key: {}, population len {}",
+        i,
+        population.len()
+    );
 
-
+    println!("OK");
 }
 
+fn get_world_size(world: &World) -> (usize, usize) {
+    ((mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.len() + mem::size_of::<World>(), 
+    (mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.capacity() + mem::size_of::<World>())
+}
+
+fn get_pop_size(pop: &Population) -> (usize, usize) {
+    ((mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.len() + mem::size_of::<Population>(),
+    (mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.capacity() + mem::size_of::<Population>())
+}
 
 fn main() {
-    let (world, population) = patterns();
-    integrity_test(world, population);
-    // todo: performance test
+    let world_size = 2_000_000;
+    let pop_size = 1_000_000;
+    let threads_num = 3;
+
+    let mut world: World = IndexMap::with_capacity_and_hasher(world_size, BuildNoHashHasher::default());
+    let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
+
+    fill_world_population(&mut world, &mut population, world_size, pop_size);
+    structure_test(&world, &population, false);
+    println!();
+
+    let (world_len, world_capacity) = get_world_size(&world);
+    println!("World size: {:.2} MB ({:.2} MB)", world_len as f64 / 1e6, world_capacity as f64 / 1e6);
+    let (pop_len, pop_capacity) = get_pop_size(&population);
+    println!("Population size: {:.2} MB ({:.2} MB)", pop_len as f64 / 1e6, pop_capacity as f64 / 1e6);
+    println!();
+
+    threads_processing(&mut world, &mut population, pop_size / threads_num, false);
+    println!();
+
+    println!("Check world after processing: ");
+    structure_test(&world, &population, false);
+    println!();
+
+    let (world_len, world_capacity) = get_world_size(&world);
+    println!("World size: {:.2} MB ({:.2} MB)", world_len as f64 / 1e6, world_capacity as f64 / 1e6);
+    let (pop_len, pop_capacity) = get_pop_size(&population);
+    println!("Population size: {:.2} MB ({:.2} MB)", pop_len as f64 / 1e6, pop_capacity as f64 / 1e6)
 }
