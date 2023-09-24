@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::{thread, mem};
+use std::mem;
 
 #[derive(Debug)]
 struct Capybara {
@@ -92,8 +92,7 @@ fn fill_world_population(
 fn threads_processing(
     world: &mut World,
     population: &mut Population,
-    pop_chunk_size: usize,
-    verbose: bool,
+    pop_chunk_size: usize
 ) {
     println!("Threads start...");
     let t0 = Instant::now();
@@ -103,53 +102,15 @@ fn threads_processing(
         let population = &population;
         for keys_chunk in keys.chunks(pop_chunk_size) {
             s.spawn(move |_| {
-                let thread_id = format!("{:?}", thread::current().id());
-                //let num = rand::thread_rng().gen_range(0..500);
-                //thread::sleep(Duration::from_millis(num));
+
 
                 let k = *keys_chunk.first().unwrap();
-                {
-                    // Mutate any capybara (first from the key_chunk)
-                    let mut m = population.get(k).unwrap().lock().unwrap();
-                    m.param = rand::thread_rng().gen_range(0..500);
-                }
+                let kk = *keys_chunk.last().unwrap();
 
-                {
-                    // Mark any capybara (first from the key_chunk) to remove
-                    let mut m = population.get(k).unwrap().lock().unwrap();
-                    m.to_remove = true;
-                }
 
-                {
-                    // Mutate area
-                    let m = population.get(k).unwrap().lock().unwrap();
-                    let mut w = world.get(&m.key_area).unwrap().lock().unwrap();
-                    w.param = 555;
-                }
+                capybara_logic(world, population, k, kk);
 
-                {
-                    // Mark capybara to move
-                    let key_target_area = rand::thread_rng().gen_range(0..world.len());
-                    let k = *keys_chunk.last().unwrap();
-                    if *k != key_target_area {
-                        let mut w = world.get(&key_target_area).unwrap().lock().unwrap();
-                        if w.vacant == true {
-                            let mut m = population.get(k).unwrap().lock().unwrap();
-                            w.vacant = false;
-                            m.to_move = Some(key_target_area);
-                        }
-                    }
-                }
 
-                if verbose {
-                    println!(
-                        "{:?}, sleep: {}, key: {}, {:?}",
-                        thread_id,
-                        0,
-                        k,
-                        population.get(k).unwrap()
-                    );
-                }
             });
         }
     })
@@ -295,10 +256,51 @@ fn get_pop_size(pop: &Population) -> (usize, usize) {
     (mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.capacity() + mem::size_of::<Population>())
 }
 
+fn capybara_logic1( world: &World, population: &Population, k: &usize, kk: &usize) {
+
+}
+
+fn capybara_logic( world: &World, population: &Population, k: &usize, kk: &usize) {
+
+    {
+        // Mutate any capybara (first from the key_chunk)
+        let mut m = population.get(k).unwrap().lock().unwrap();
+        m.param = rand::thread_rng().gen_range(0..500);
+    }
+
+    {
+        // Mark any capybara (first from the key_chunk) to remove
+        let mut m = population.get(k).unwrap().lock().unwrap();
+        m.to_remove = true;
+    }
+
+    {
+        // Mutate area
+        let m = population.get(k).unwrap().lock().unwrap();
+        let mut w = world.get(&m.key_area).unwrap().lock().unwrap();
+        w.param = 555;
+    }
+
+    {
+        // Mark capybara to move
+        let key_target_area = rand::thread_rng().gen_range(0..world.len());
+        if *k != key_target_area {
+            let mut w = world.get(&key_target_area).unwrap().lock().unwrap();
+            if w.vacant == true {
+                let mut m = population.get(k).unwrap().lock().unwrap();
+                w.vacant = false;
+                m.to_move = Some(key_target_area);
+            }
+        }
+    }
+
+
+}
+
 fn main() {
     let world_size = 2_000_000;
     let pop_size = 1_000_000;
-    let threads_num = 3;
+    let threads_num = 16;
 
     let mut world: World = IndexMap::with_capacity_and_hasher(world_size, BuildNoHashHasher::default());
     let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
@@ -313,7 +315,7 @@ fn main() {
     println!("Population size: {:.2} MB ({:.2} MB)", pop_len as f64 / 1e6, pop_capacity as f64 / 1e6);
     println!();
 
-    threads_processing(&mut world, &mut population, pop_size / threads_num, false);
+    threads_processing(&mut world, &mut population, pop_size / threads_num);
     println!();
 
     println!("Check world after processing: ");
