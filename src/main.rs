@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::mem;
+use std::{mem, thread};
 
 #[derive(Debug)]
 struct Capybara {
@@ -89,12 +89,8 @@ fn fill_world_population(
     println!("{:.3} sec", t0.elapsed().as_secs_f64());
 }
 
-fn threads_processing(
-    world: &mut World,
-    population: &mut Population,
-    pop_chunk_size: usize
-) {
-    println!("Threads start...");
+fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_size: usize) {
+    // logic in threads
     let t0 = Instant::now();
     let keys = population.keys().collect::<Vec<&usize>>();
     crossbeam::scope(|s| {
@@ -102,15 +98,7 @@ fn threads_processing(
         let population = &population;
         for keys_chunk in keys.chunks(pop_chunk_size) {
             s.spawn(move |_| {
-
-
-                let k = *keys_chunk.first().unwrap();
-                let kk = *keys_chunk.last().unwrap();
-
-
-                capybara_logic(world, population, k, kk);
-
-
+                capybara_logic(world, population, keys_chunk);
             });
         }
     })
@@ -164,7 +152,10 @@ fn threads_processing(
     });
     let remove_eps = t0.elapsed().as_secs_f64();
     println!("{:.3} sec", remove_eps);
-    println!("Time elapsed: {:.3} sec", thread_eps + move_eps + remove_eps);
+    println!(
+        "Time elapsed: {:.3} sec",
+        thread_eps + move_eps + remove_eps
+    );
 }
 
 fn structure_test(world: &World, population: &Population, verbose: bool) {
@@ -247,20 +238,26 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
 }
 
 fn get_world_size(world: &World) -> (usize, usize) {
-    ((mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.len() + mem::size_of::<World>(), 
-    (mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.capacity() + mem::size_of::<World>())
+    (
+        (mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.len()
+            + mem::size_of::<World>(),
+        (mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.capacity()
+            + mem::size_of::<World>(),
+    )
 }
 
 fn get_pop_size(pop: &Population) -> (usize, usize) {
-    ((mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.len() + mem::size_of::<Population>(),
-    (mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.capacity() + mem::size_of::<Population>())
+    (
+        (mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.len()
+            + mem::size_of::<Population>(),
+        (mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.capacity()
+            + mem::size_of::<Population>(),
+    )
 }
 
-fn capybara_logic1( world: &World, population: &Population, k: &usize, kk: &usize) {
-
-}
-
-fn capybara_logic( world: &World, population: &Population, k: &usize, kk: &usize) {
+fn capybara_logic_example(world: &World, population: &Population, keys: &[&usize]) {
+    let k = *keys.first().unwrap();
+    let kk = *keys.last().unwrap();
 
     {
         // Mutate any capybara (first from the key_chunk)
@@ -284,25 +281,24 @@ fn capybara_logic( world: &World, population: &Population, k: &usize, kk: &usize
     {
         // Mark capybara to move
         let key_target_area = rand::thread_rng().gen_range(0..world.len());
-        if *k != key_target_area {
+        if *kk != key_target_area {
             let mut w = world.get(&key_target_area).unwrap().lock().unwrap();
             if w.vacant == true {
-                let mut m = population.get(k).unwrap().lock().unwrap();
+                let mut m = population.get(kk).unwrap().lock().unwrap();
                 w.vacant = false;
                 m.to_move = Some(key_target_area);
             }
         }
     }
-
-
 }
 
 fn main() {
-    let world_size = 2_000_000;
-    let pop_size = 1_000_000;
-    let threads_num = 16;
+    let world_size = 20;//_000_000;
+    let pop_size = 10;//_000_000;
+    let pop_chunk_size: usize = 2;//_000_000;
 
-    let mut world: World = IndexMap::with_capacity_and_hasher(world_size, BuildNoHashHasher::default());
+    let mut world: World =
+        IndexMap::with_capacity_and_hasher(world_size, BuildNoHashHasher::default());
     let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
 
     fill_world_population(&mut world, &mut population, world_size, pop_size);
@@ -310,12 +306,20 @@ fn main() {
     println!();
 
     let (world_len, world_capacity) = get_world_size(&world);
-    println!("World size: {:.2} MB ({:.2} MB)", world_len as f64 / 1e6, world_capacity as f64 / 1e6);
+    println!(
+        "World size: {:.2} MB ({:.2} MB)",
+        world_len as f64 / 1e6,
+        world_capacity as f64 / 1e6
+    );
     let (pop_len, pop_capacity) = get_pop_size(&population);
-    println!("Population size: {:.2} MB ({:.2} MB)", pop_len as f64 / 1e6, pop_capacity as f64 / 1e6);
+    println!(
+        "Population size: {:.2} MB ({:.2} MB)",
+        pop_len as f64 / 1e6,
+        pop_capacity as f64 / 1e6
+    );
     println!();
 
-    threads_processing(&mut world, &mut population, pop_size / threads_num);
+    threads_processing(&mut world, &mut population, pop_chunk_size);
     println!();
 
     println!("Check world after processing: ");
@@ -323,7 +327,21 @@ fn main() {
     println!();
 
     let (world_len, world_capacity) = get_world_size(&world);
-    println!("World size: {:.2} MB ({:.2} MB)", world_len as f64 / 1e6, world_capacity as f64 / 1e6);
+    println!(
+        "World size: {:.2} MB ({:.2} MB)",
+        world_len as f64 / 1e6,
+        world_capacity as f64 / 1e6
+    );
     let (pop_len, pop_capacity) = get_pop_size(&population);
-    println!("Population size: {:.2} MB ({:.2} MB)", pop_len as f64 / 1e6, pop_capacity as f64 / 1e6)
+    println!(
+        "Population size: {:.2} MB ({:.2} MB)",
+        pop_len as f64 / 1e6,
+        pop_capacity as f64 / 1e6
+    )
+}
+
+fn capybara_logic(world: &World, population: &Population, keys: &[&usize]) {
+
+    println!("{:?}", thread::current().id());
+
 }
