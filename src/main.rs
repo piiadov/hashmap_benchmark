@@ -56,14 +56,16 @@ type Population = IndexMap<usize, RwLock<Capybara>, BuildNoHashHasher<usize>>;
 fn fill_world_population(
     world: &mut World,
     population: &mut Population,
-    world_size: usize,
+    world_size: (usize, usize),
     pop_size: usize,
 ) {
     // Fill world with areas
     print!("Create areas: ");
     let t0 = Instant::now();
-    for i in 0..world_size {
-        world.insert((i, i), RwLock::new(Area::new()));
+    for x in 0..world_size.0 {
+        for y in 0..world_size.1 {
+            world.insert((x, y), RwLock::new(Area::new()));
+        }
     }
     println!("{:.3} sec", t0.elapsed().as_secs_f64());
 
@@ -80,7 +82,7 @@ fn fill_world_population(
         let a = world.get_mut(&k).unwrap().get_mut().unwrap();
         let m_opt = population.insert(i, RwLock::new(Capybara::new(k)));
         match m_opt {
-            Some(c) => panic!("Error: Cannot area already contains capybara {:?}", c),
+            Some(c) => panic!("Area already contains capybara {:?}", c),
             None => {
                 a.key_capybara = Some(i);
                 a.vacant = false;
@@ -97,11 +99,14 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
     crossbeam::scope(|s| {
         let world = &world;
         let population = &population;
+        let mut threads_num = 0;
         for keys_chunk in keys.chunks(pop_chunk_size) {
+            threads_num += 1;
             s.spawn(move |_| {
                 keys_chunk.iter().for_each(|key| capybara_logic(world, population, *key));
             });
         }
+        println!("Spawned threads: {}", threads_num);
     })
     .unwrap();
     let thread_eps = t0.elapsed().as_secs_f64();
@@ -302,10 +307,9 @@ fn main() {
 
     let world_size = world_size_x * world_size_y;
     let mut world = World::default();
-        //IndexMap::with_capacity_and_hasher(world_size, BuildHasherDefault<SeaHasher>::default());
-    let mut population: Population = Population::default();
+    let mut population = Population::default();
 
-    fill_world_population(&mut world, &mut population, world_size, pop_size);
+    fill_world_population(&mut world, &mut population, (world_size_x, world_size_y), pop_size);
     structure_test(&world, &population, false);
     println!();
 
@@ -346,10 +350,20 @@ fn main() {
 
 fn capybara_logic(world: &World, population: &Population, key: &usize) {
     // move
-    let mut m = population.get(key).unwrap().read().unwrap();
+    
+    let current_pos: (usize, usize);
+    {
+        let m = population.get(key).unwrap().read().unwrap();
+        current_pos = m.key_area;
+    }
+
+    
+
+
+
 
      // Mark capybara to move
-     let key_target_area = rand::thread_rng().gen_range(0..world.len());
+    //let key_target_area = rand::thread_rng().gen_range(0..world.len());
      
     //  let mut w = world.get(&key_target_area).unwrap().write().unwrap();
     //  if w.vacant == true {
@@ -358,6 +372,6 @@ fn capybara_logic(world: &World, population: &Population, key: &usize) {
     //      m.to_move = Some(key_target_area);
     //  }
 
-
+    //    dbg!(m.key_area, world.len());
 }
 
