@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
@@ -98,7 +99,7 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
         let population = &population;
         for keys_chunk in keys.chunks(pop_chunk_size) {
             s.spawn(move |_| {
-                capybara_logic(world, population, keys_chunk);
+                keys_chunk.iter().for_each(|key| capybara_logic(world, population, *key));
             });
         }
     })
@@ -293,10 +294,13 @@ fn capybara_logic_example(world: &World, population: &Population, keys: &[&usize
 }
 
 fn main() {
-    let world_size = 20;//_000_000;
-    let pop_size = 10;//_000_000;
+    let world_size_x: usize = 16;
+    let world_size_y: usize = 16;
+
+    let pop_size = 5;//_000_000;
     let pop_chunk_size: usize = 2;//_000_000;
 
+    let world_size = world_size_x * world_size_y;
     let mut world: World =
         IndexMap::with_capacity_and_hasher(world_size, BuildNoHashHasher::default());
     let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
@@ -340,8 +344,12 @@ fn main() {
     )
 }
 
-fn capybara_logic(world: &World, population: &Population, keys: &[&usize]) {
+fn capybara_logic(world: &World, population: &Population, key: &usize) {
+    // move
+    let mut m = population.get(key).unwrap().lock().unwrap();
 
-    println!("{:?}", thread::current().id());
+    dbg!(m);
+
 
 }
+
