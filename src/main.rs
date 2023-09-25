@@ -2,7 +2,7 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use std::sync::Mutex;
+use std::{sync::RwLock, hash::BuildHasherDefault};
 use std::time::Instant;
 
 use crossbeam;
@@ -10,18 +10,19 @@ use indexmap::IndexMap;
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::SliceRandom;
 use rand::Rng;
+use seahash::SeaHasher;
 use std::{mem, thread};
 
 #[derive(Debug)]
 struct Capybara {
-    key_area: usize,
+    key_area: (usize, usize),
     to_remove: bool,
-    to_move: Option<usize>,
+    to_move: Option<(usize, usize)>,
     param: usize,
 }
 
 impl Capybara {
-    pub fn new(key_area: usize) -> Capybara {
+    pub fn new(key_area: (usize, usize)) -> Capybara {
         Capybara {
             key_area,
             to_remove: false,
@@ -49,9 +50,8 @@ impl Area {
         }
     }
 }
-
-type World = IndexMap<usize, Mutex<Area>, BuildNoHashHasher<usize>>;
-type Population = IndexMap<usize, Mutex<Capybara>, BuildNoHashHasher<usize>>;
+type World = IndexMap<(usize, usize), RwLock<Area>, BuildHasherDefault<SeaHasher>>;
+type Population = IndexMap<usize, RwLock<Capybara>, BuildNoHashHasher<usize>>;
 
 fn fill_world_population(
     world: &mut World,
@@ -63,7 +63,7 @@ fn fill_world_population(
     print!("Create areas: ");
     let t0 = Instant::now();
     for i in 0..world_size {
-        world.insert(i, Mutex::new(Area::new()));
+        world.insert((i, i), RwLock::new(Area::new()));
     }
     println!("{:.3} sec", t0.elapsed().as_secs_f64());
 
@@ -71,14 +71,14 @@ fn fill_world_population(
     print!("Create population: ");
     let t0 = Instant::now();
     let mut rng = rand::thread_rng();
-    let mut world_keys = world.keys().copied().collect::<Vec<usize>>();
+    let mut world_keys = world.keys().copied().collect::<Vec<(usize, usize)>>();
     world_keys.shuffle(&mut rng);
     world_keys.truncate(pop_size);
     let mut irange = 0..world_keys.len();
     for k in world_keys {
         let i = irange.next().unwrap();
         let a = world.get_mut(&k).unwrap().get_mut().unwrap();
-        let m_opt = population.insert(i, Mutex::from(Capybara::new(k)));
+        let m_opt = population.insert(i, RwLock::new(Capybara::new(k)));
         match m_opt {
             Some(c) => panic!("Error: Cannot area already contains capybara {:?}", c),
             None => {
@@ -165,7 +165,7 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
         println!();
         world
             .iter()
-            .for_each(|(k, v)| println!("Area key: {}, {:?}", k, v));
+            .for_each(|(k, v)| println!("Area key: {:?}, {:?}", k, v));
         population
             .iter()
             .for_each(|(k, v)| println!("Capybara key: {}, {:?}", k, v));
@@ -174,12 +174,12 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
     }
 
     population.iter().for_each(|(key_capybara, v)| {
-        let m = v.lock().unwrap();
+        let m = v.read().unwrap();
         let area_opt = world.get(&m.key_area);
         match area_opt {
             None => panic!("Capybara contains incorrect key_area"),
             Some(area_mtx) => {
-                let w = area_mtx.lock().unwrap();
+                let w = area_mtx.read().unwrap();
                 assert!(
                     w.key_capybara.is_some(),
                     "capybara {} linked to area which does not have correct key_capybara",
@@ -200,13 +200,13 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
     });
     let mut i = 0;
     world.iter().for_each(|(key_area, v)| {
-        let w = v.lock().unwrap();
+        let w = v.read().unwrap();
         if w.key_capybara.is_some() {
             i += 1;
             let m = population
                 .get(&w.key_capybara.unwrap())
                 .unwrap()
-                .lock()
+                .read()
                 .unwrap();
             assert!(
                 *key_area == m.key_area,
@@ -216,14 +216,14 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
         if w.vacant {
             assert!(
                 w.key_capybara.is_none(),
-                "area {} is vacant but has capybara {}",
+                "area {:?} is vacant but has capybara {}",
                 key_area,
                 w.key_capybara.unwrap()
             );
         } else {
             assert!(
                 w.key_capybara.is_some(),
-                "area {} is not vacant and does not have capybara",
+                "area {:?} is not vacant and does not have capybara",
                 key_area
             );
         }
@@ -240,58 +240,58 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
 
 fn get_world_size(world: &World) -> (usize, usize) {
     (
-        (mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.len()
+        (mem::size_of::<RwLock<Area>>() + mem::size_of::<usize>()) * world.len()
             + mem::size_of::<World>(),
-        (mem::size_of::<Mutex<Area>>() + mem::size_of::<usize>()) * world.capacity()
+        (mem::size_of::<RwLock<Area>>() + mem::size_of::<usize>()) * world.capacity()
             + mem::size_of::<World>(),
     )
 }
 
 fn get_pop_size(pop: &Population) -> (usize, usize) {
     (
-        (mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.len()
+        (mem::size_of::<RwLock<Capybara>>() + mem::size_of::<usize>()) * pop.len()
             + mem::size_of::<Population>(),
-        (mem::size_of::<Mutex<Capybara>>() + mem::size_of::<usize>()) * pop.capacity()
+        (mem::size_of::<RwLock<Capybara>>() + mem::size_of::<usize>()) * pop.capacity()
             + mem::size_of::<Population>(),
     )
 }
 
-fn capybara_logic_example(world: &World, population: &Population, keys: &[&usize]) {
-    let k = *keys.first().unwrap();
-    let kk = *keys.last().unwrap();
+// fn capybara_logic_example(world: &World, population: &Population, keys: &[&usize]) {
+//     let k = *keys.first().unwrap();
+//     let kk = *keys.last().unwrap();
 
-    {
-        // Mutate any capybara (first from the key_chunk)
-        let mut m = population.get(k).unwrap().lock().unwrap();
-        m.param = rand::thread_rng().gen_range(0..500);
-    }
+//     {
+//         // Mutate any capybara (first from the key_chunk)
+//         let mut m = population.get(k).unwrap().write().unwrap();
+//         m.param = rand::thread_rng().gen_range(0..500);
+//     }
 
-    {
-        // Mark any capybara (first from the key_chunk) to remove
-        let mut m = population.get(k).unwrap().lock().unwrap();
-        m.to_remove = true;
-    }
+//     {
+//         // Mark any capybara (first from the key_chunk) to remove
+//         let mut m = population.get(k).unwrap().write().unwrap();
+//         m.to_remove = true;
+//     }
 
-    {
-        // Mutate area
-        let m = population.get(k).unwrap().lock().unwrap();
-        let mut w = world.get(&m.key_area).unwrap().lock().unwrap();
-        w.param = 555;
-    }
+//     {
+//         // Mutate area
+//         let m = population.get(k).unwrap().read().unwrap();
+//         let mut w = world.get(&m.key_area).unwrap().write().unwrap();
+//         w.param = 555;
+//     }
 
-    {
-        // Mark capybara to move
-        let key_target_area = rand::thread_rng().gen_range(0..world.len());
-        if *kk != key_target_area {
-            let mut w = world.get(&key_target_area).unwrap().lock().unwrap();
-            if w.vacant == true {
-                let mut m = population.get(kk).unwrap().lock().unwrap();
-                w.vacant = false;
-                m.to_move = Some(key_target_area);
-            }
-        }
-    }
-}
+//     {
+//         // Mark capybara to move
+//         let key_target_area = rand::thread_rng().gen_range(0..world.len());
+//         if *kk != key_target_area {
+//             let mut w = world.get(&key_target_area).unwrap().write().unwrap();
+//             if w.vacant == true {
+//                 let mut m = population.get(kk).unwrap().write().unwrap();
+//                 w.vacant = false;
+//                 m.to_move = Some(key_target_area);
+//             }
+//         }
+//     }
+// }
 
 fn main() {
     let world_size_x: usize = 16;
@@ -301,9 +301,9 @@ fn main() {
     let pop_chunk_size: usize = 2;//_000_000;
 
     let world_size = world_size_x * world_size_y;
-    let mut world: World =
-        IndexMap::with_capacity_and_hasher(world_size, BuildNoHashHasher::default());
-    let mut population: Population = IndexMap::with_hasher(BuildNoHashHasher::default());
+    let mut world = World::default();
+        //IndexMap::with_capacity_and_hasher(world_size, BuildHasherDefault<SeaHasher>::default());
+    let mut population: Population = Population::default();
 
     fill_world_population(&mut world, &mut population, world_size, pop_size);
     structure_test(&world, &population, false);
@@ -346,9 +346,17 @@ fn main() {
 
 fn capybara_logic(world: &World, population: &Population, key: &usize) {
     // move
-    let mut m = population.get(key).unwrap().lock().unwrap();
+    let mut m = population.get(key).unwrap().read().unwrap();
 
-    dbg!(m);
+     // Mark capybara to move
+     let key_target_area = rand::thread_rng().gen_range(0..world.len());
+     
+    //  let mut w = world.get(&key_target_area).unwrap().write().unwrap();
+    //  if w.vacant == true {
+    //      let mut m = population.get(kk).unwrap().write().unwrap();
+    //      w.vacant = false;
+    //      m.to_move = Some(key_target_area);
+    //  }
 
 
 }
