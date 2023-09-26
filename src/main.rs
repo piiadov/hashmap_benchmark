@@ -17,7 +17,6 @@ use std::{default, mem, thread};
 struct Creature {
     key_area: (usize, usize),
     to_remove: bool,
-    to_move: Option<(usize, usize)>,
     param: usize,
 }
 
@@ -26,7 +25,6 @@ impl Creature {
         Creature {
             key_area,
             to_remove: false,
-            to_move: None,
             param: 0,
         }
     }
@@ -35,7 +33,6 @@ impl Creature {
 #[derive(Debug)]
 struct Area {
     key_creature: Option<usize>,
-    vacant: bool,
     param: usize,
     smth: f64,
 }
@@ -44,7 +41,6 @@ impl Area {
     pub fn new() -> Area {
         Area {
             key_creature: None,
-            vacant: true,
             param: 0,
             smth: 123.123,
         }
@@ -117,7 +113,6 @@ fn fill_world_population(
             Some(c) => panic!("Area already contains creature {:?}", c),
             None => {
                 a.key_creature = Some(i);
-                a.vacant = false;
             }
         }
     }
@@ -128,6 +123,7 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
     // logic in threads
     let t0 = Instant::now();
     let keys = population.creatures.keys().collect::<Vec<&usize>>();
+
     crossbeam::scope(|s| {
         let world = &world;
         let population = &population;
@@ -146,39 +142,12 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
     let thread_eps = t0.elapsed().as_secs_f64();
     println!("Thread time: {:.3} sec", thread_eps);
 
-    // move creatures if to_move == Some(key_area)
-    print!("Moving creatures: ");
-    let t0 = Instant::now();
-    population.creatures.iter_mut().for_each(|(key, v)| {
-        let creature = v.get_mut().unwrap();
-        if creature.to_move.is_some() {
-            let current_area = world
-                .areas
-                .get_mut(&creature.key_area)
-                .unwrap()
-                .get_mut()
-                .unwrap();
-            current_area.key_creature = None;
-            current_area.vacant = true;
-
-            let key_target_area = creature.to_move.unwrap();
-            creature.key_area = key_target_area;
-            creature.to_move = None;
-
-            let target_area = world
-                .areas
-                .get_mut(&key_target_area)
-                .unwrap()
-                .get_mut()
-                .unwrap();
-            target_area.key_creature = Some(*key);
-        }
-    });
-    let move_eps = t0.elapsed().as_secs_f64();
-    println!("{:.3} sec", move_eps);
-
     // remove creatures if to_remove == true
     print!("Removing creatures: ");
+    
+    
+    
+    
     let t0 = Instant::now();
     population.creatures.retain(|_, v| {
         // clean from corresponding area
@@ -191,18 +160,18 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
                 .get_mut()
                 .unwrap();
             area.key_creature = None;
-            area.vacant = true;
             false
         } else {
             true
         }
     });
+
+
+    
+
+
     let remove_eps = t0.elapsed().as_secs_f64();
     println!("{:.3} sec", remove_eps);
-    println!(
-        "Time elapsed: {:.3} sec",
-        thread_eps + move_eps + remove_eps
-    );
 }
 
 fn structure_test(world: &World, population: &Population, verbose: bool) {
@@ -242,9 +211,6 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
         if m.to_remove {
             panic!("creature {} .to_remove must be false", key_creature);
         }
-        if m.to_move.is_some() {
-            panic!("creature {} .to_move must be None", key_creature);
-        }
     });
     let mut i = 0;
     world.areas.iter().for_each(|(key_area, v)| {
@@ -260,20 +226,6 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
             assert!(
                 *key_area == m.key_area,
                 "area's key does not match corresponding capibara's key_area"
-            );
-        }
-        if w.vacant {
-            assert!(
-                w.key_creature.is_none(),
-                "area {:?} is vacant but has creature {}",
-                key_area,
-                w.key_creature.unwrap()
-            );
-        } else {
-            assert!(
-                w.key_creature.is_some(),
-                "area {:?} is not vacant and does not have creature",
-                key_area
             );
         }
     });
@@ -347,7 +299,7 @@ fn main() {
     let world_size_y: usize = 3000;
 
     let pop_size = 5_000_000;
-    let pop_chunk_size: usize = 500_000;
+    let pop_chunk_size: usize = 250_000;
 
     let world_size = world_size_x * world_size_y;
     let mut world = World::new(TAreas::default());
@@ -370,9 +322,10 @@ fn main() {
     );
     let (pop_len, pop_capacity) = get_pop_size(&population);
     println!(
-        "Population size: {:.2} MB ({:.2} MB)",
+        "Population size: {:.2} MB ({:.2} MB), {} creatures",
         pop_len as f64 / 1e6,
-        pop_capacity as f64 / 1e6
+        pop_capacity as f64 / 1e6,
+        population.creatures.len()
     );
     println!();
 
@@ -391,30 +344,23 @@ fn main() {
     );
     let (pop_len, pop_capacity) = get_pop_size(&population);
     println!(
-        "Population size: {:.2} MB ({:.2} MB)",
+        "Population size: {:.2} MB ({:.2} MB), {} creatures",
         pop_len as f64 / 1e6,
-        pop_capacity as f64 / 1e6
-    )
+        pop_capacity as f64 / 1e6,
+        population.creatures.len()
+    );
 }
 
 fn creature_logic(world: &World, population: &Population, key: &usize) {
+    remove_creature(world, population, key);
     move_creature(world, population, key);
-
-    
-        
-    // let key_target_area = (rand::thread_rng().gen_range(0..3000), rand::thread_rng().gen_range(0..3000));
-    // let mut w = world.areas.get(&key_target_area).unwrap().write().unwrap();
-    // if w.vacant == true {
-    //     let mut m = population.creatures.get(key).unwrap().write().unwrap();
-    //     w.vacant = false;
-    //     m.to_move = Some(key_target_area);
-    // }
-        
-    
 }
 
 fn move_creature(world: &World, population: &Population, key: &usize) {
-    // Mark creature to move
+    if !population.creatures.contains_key(key) {
+        return;
+    }
+
     let (x, y): (usize, usize);
     {
         let m = population.creatures.get(key).unwrap().read().unwrap();
@@ -438,26 +384,39 @@ fn move_creature(world: &World, population: &Population, key: &usize) {
     let mut rng = rand::thread_rng();
     move_options.shuffle(&mut rng);
 
-    let mut to_move: Option<(usize, usize)> = None;
+    let mut move_flag = false;
     for i in 0..move_options.len() {
         if move_options[i] == (x, y) {
             break;
         }
         {
             let mut a = world.areas.get(&move_options[i]).unwrap().write().unwrap();
-            if a.vacant {
-                a.vacant = false;
-                to_move = Some(move_options[i]);
+            if a.key_creature.is_none() {
+                a.key_creature = Some(*key);
+                move_flag = true;
             }
         }
-        if to_move.is_some() {
+        if move_flag {
             {
                 let mut m = population.creatures.get(key).unwrap().write().unwrap();
-                m.to_move = to_move;
+                m.key_area = move_options[i];
+            }
+            {
+                let mut a = world.areas.get(&(x, y)).unwrap().write().unwrap();
+                a.key_creature = None;
             }
             break;
         }
+    }
+}
 
-
+fn remove_creature(world: &World, population: &Population, key: &usize) {
+    // Remove creature with probability 10%
+    if !population.creatures.contains_key(key) {
+        return;
+    }
+    if rand::random::<f32>() < 0.9 {
+        let mut m = population.creatures.get(key).unwrap().write().unwrap();
+        m.to_remove = true;
     }
 }
