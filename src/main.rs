@@ -343,12 +343,11 @@ fn get_pop_size(pop: &Population) -> (usize, usize) {
 // }
 
 fn main() {
-    let world_size_x: usize = 16; //3000;
-    let world_size_y: usize = 16; //3000;
+    let world_size_x: usize = 2500;
+    let world_size_y: usize = 2500;
 
-    let pop_size = 5; //_000_000;
-    let pop_chunk_size: usize = 2; //5_00_000;
-                                   // eps 0.084
+    let pop_size = 5_000_000;
+    let pop_chunk_size: usize = 250_000;
 
     let world_size = world_size_x * world_size_y;
     let mut world = World::new(TAreas::default());
@@ -399,6 +398,22 @@ fn main() {
 }
 
 fn creature_logic(world: &World, population: &Population, key: &usize) {
+    move_creature(world, population, key);
+
+    
+        
+    // let key_target_area = (rand::thread_rng().gen_range(0..3000), rand::thread_rng().gen_range(0..3000));
+    // let mut w = world.areas.get(&key_target_area).unwrap().write().unwrap();
+    // if w.vacant == true {
+    //     let mut m = population.creatures.get(key).unwrap().write().unwrap();
+    //     w.vacant = false;
+    //     m.to_move = Some(key_target_area);
+    // }
+        
+    
+}
+
+fn move_creature(world: &World, population: &Population, key: &usize) {
     // Mark creature to move
     let (x, y): (usize, usize);
     {
@@ -408,39 +423,39 @@ fn creature_logic(world: &World, population: &Population, key: &usize) {
     // Get free areas nearly
     let mut move_options: Vec<(usize, usize)> = Vec::new();
     move_options.push((x, y));
+
     for i in if x > 0 { x - 1 } else { 0 }..if x < world.size_x - 1 { x + 1 } else { x } + 1 {
         if i != x {
-            let a = world.areas.get(&(i, y)).unwrap().read().unwrap();
-            if a.vacant {
-                move_options.push((i,y));
-            }
+            move_options.push((i, y));
         }
     }
-    for j in if y > 0 { y - 1 } else { 0 }..if y < world.size_y - 1 { y + 1 } else { y } + 1{
-            if j != y {
-                let a = world.areas.get(&(x, j)).unwrap().read().unwrap();
-                if a.vacant {
-                    move_options.push((x,j));
-                }
-            }
+    for j in if y > 0 { y - 1 } else { 0 }..if y < world.size_y - 1 { y + 1 } else { y } + 1 {
+        if j != y {
+            move_options.push((x, j));
+        }
     }
-    
 
-    
-    // Random select target area and set to_move
-    let key_target_area = move_options[rand::thread_rng().gen_range(0..move_options.len())];
+    let mut rng = rand::thread_rng();
+    move_options.shuffle(&mut rng);
 
-    println!("{:?}: {:?}, {:?}", (x,y), move_options, key_target_area);
-
-
-
-
-    //  let mut w = world.get(&key_target_area).unwrap().write().unwrap();
-    //  if w.vacant == true {
-    //      let mut m = population.get(kk).unwrap().write().unwrap();
-    //      w.vacant = false;
-    //      m.to_move = Some(key_target_area);
-    //  }
-
-    //    dbg!(m.key_area, world.len());
+    let mut to_move: Option<(usize, usize)> = None;
+    for i in 0..move_options.len() {
+        if move_options[i] == (x, y) {
+            break;
+        }
+        {
+            let mut a = world.areas.get(&move_options[i]).unwrap().write().unwrap();
+            if a.vacant {
+                a.vacant = false;
+                to_move = Some(move_options[i]);
+            }
+        }
+        if to_move.is_some() {
+            {
+                let mut m = population.creatures.get(key).unwrap().write().unwrap();
+                m.to_move = to_move;
+            }
+            break;
+        }
+    }
 }
