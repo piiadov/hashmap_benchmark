@@ -343,11 +343,11 @@ fn get_pop_size(pop: &Population) -> (usize, usize) {
 // }
 
 fn main() {
-    let world_size_x: usize = 2500;
-    let world_size_y: usize = 2500;
+    let world_size_x: usize = 3000;
+    let world_size_y: usize = 3000;
 
     let pop_size = 5_000_000;
-    let pop_chunk_size: usize = 250_000;
+    let pop_chunk_size: usize = 500_000;
 
     let world_size = world_size_x * world_size_y;
     let mut world = World::new(TAreas::default());
@@ -457,5 +457,7 @@ fn move_creature(world: &World, population: &Population, key: &usize) {
             }
             break;
         }
+
+
     }
 }
