@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use std::sync::Arc;
 use std::time::Instant;
 use std::{hash::BuildHasherDefault, sync::RwLock};
 
@@ -144,32 +145,8 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
 
     // remove creatures if to_remove == true
     print!("Removing creatures: ");
-    
-    
-    
-    
     let t0 = Instant::now();
-    population.creatures.retain(|_, v| {
-        // clean from corresponding area
-        let creature = v.get_mut().unwrap();
-        if creature.to_remove {
-            let area = world
-                .areas
-                .get_mut(&creature.key_area)
-                .unwrap()
-                .get_mut()
-                .unwrap();
-            area.key_creature = None;
-            false
-        } else {
-            true
-        }
-    });
-
-
-    
-
-
+    population.creatures.retain(|_, v| !v.get_mut().unwrap().to_remove );
     let remove_eps = t0.elapsed().as_secs_f64();
     println!("{:.3} sec", remove_eps);
 }
@@ -332,7 +309,6 @@ fn main() {
     threads_processing(&mut world, &mut population, pop_chunk_size);
     println!();
 
-    println!("Check world after processing: ");
     structure_test(&world, &population, false);
     println!();
 
@@ -357,13 +333,10 @@ fn creature_logic(world: &World, population: &Population, key: &usize) {
 }
 
 fn move_creature(world: &World, population: &Population, key: &usize) {
-    if !population.creatures.contains_key(key) {
-        return;
-    }
-
     let (x, y): (usize, usize);
     {
         let m = population.creatures.get(key).unwrap().read().unwrap();
+        if m.to_remove { return; }
         (x, y) = m.key_area;
     }
     // Get free areas nearly
@@ -412,11 +385,17 @@ fn move_creature(world: &World, population: &Population, key: &usize) {
 
 fn remove_creature(world: &World, population: &Population, key: &usize) {
     // Remove creature with probability 10%
-    if !population.creatures.contains_key(key) {
-        return;
-    }
-    if rand::random::<f32>() < 0.9 {
-        let mut m = population.creatures.get(key).unwrap().write().unwrap();
-        m.to_remove = true;
+    if rand::random::<f32>() < 0.1 {
+        let key_area: (usize, usize);
+        {
+            let mut m = population.creatures.get(key).unwrap().write().unwrap();
+            if m.to_remove { return; }
+            m.to_remove = true;
+            key_area = m.key_area;
+        }
+        //println!("To remove: {:?}, key_area: {:?}", key, key_area);
+        let mut a = world.areas.get(&key_area).unwrap().write().unwrap();
+        a.key_creature = None;
     }
 }
+
