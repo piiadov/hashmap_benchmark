@@ -12,7 +12,7 @@ use nohash_hasher::BuildNoHashHasher;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use seahash::SeaHasher;
-use std::{default, mem, thread};
+use std::{default, mem, thread, vec};
 
 #[derive(Debug)]
 struct Creature {
@@ -272,8 +272,8 @@ fn get_pop_size(pop: &Population) -> (usize, usize) {
 // }
 
 fn main() {
-    let world_size_x: usize = 3000;
-    let world_size_y: usize = 3000;
+    let world_size_x: usize = 3840;
+    let world_size_y: usize = 2160;
 
     let pop_size = 5_000_000;
     let pop_chunk_size: usize = 250_000;
@@ -330,6 +330,7 @@ fn main() {
 fn creature_logic(world: &World, population: &Population, key: &usize) {
     remove_creature(world, population, key);
     move_creature(world, population, key);
+    //new_creature(world, population, key);
 }
 
 fn move_creature(world: &World, population: &Population, key: &usize) {
@@ -399,3 +400,58 @@ fn remove_creature(world: &World, population: &Population, key: &usize) {
     }
 }
 
+fn new_creature(world: &World, population: &Population, key: &usize) {
+    // if 2 nearest areas have another creature, key_creature.is_none(): new creature with proba = 0.5
+    let (x, y): (usize, usize);
+    {
+        let m = population.creatures.get(key).unwrap().read().unwrap();
+        if m.to_remove { return; }
+        (x, y) = m.key_area;
+    }
+
+    // Get free areas nearly
+    let mut nearest_keys_area: Vec<(usize, usize)> = Vec::new();
+    for i in if x > 0 { x - 1 } else { 0 }..if x < world.size_x - 1 { x + 1 } else { x } + 1 {
+        if i != x {
+            nearest_keys_area.push((i, y));
+        }
+    }
+    for j in if y > 0 { y - 1 } else { 0 }..if y < world.size_y - 1 { y + 1 } else { y } + 1 {
+        if j != y {
+            nearest_keys_area.push((x, j));
+        }
+    }
+
+    let mut neib: Vec<usize> = Vec::new();
+    let mut empty_areas: Vec<&(usize, usize)> = Vec::new();
+    nearest_keys_area.iter().for_each(|key_area| {
+        let a = world.areas.get(key_area).unwrap().read().unwrap();
+        match a.key_creature {
+            None => empty_areas.push(key_area),
+            Some(key_creature) => neib.push(key_creature)
+        }
+        
+    });
+
+    if neib.len() > 0 && empty_areas.len() > 0 {
+        let mut rng = rand::thread_rng();
+        empty_areas.shuffle(&mut rng);
+        for key_area in empty_areas {
+
+
+            let key_creature: Option<usize>;
+            {
+                let a = world.areas.get(key_area).unwrap().read().unwrap();
+                key_creature = a.key_creature;
+            }
+            if key_creature.is_none() && rng.gen_range(0.0..=1.0) < 0.1 {
+
+                //population.creatures.insert(100500, RwLock::from(Creature::new(*key_area)));
+
+                return;
+            }
+
+
+        }
+    }
+}
