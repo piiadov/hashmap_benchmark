@@ -109,6 +109,7 @@ name = "hashmap_benchmark"
 version = "0.1.0"
 dependencies = [
  "crossbeam",
+ "crossbeam-channel",
  "indexmap",
  "nohash-hasher",
  "rand",

@@ -8,7 +8,7 @@ use nohash_hasher::BuildNoHashHasher;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use seahash::SeaHasher;
-use std::{hash::BuildHasherDefault, mem, sync::{RwLock, mpsc::{channel, Sender}}, time::Instant, thread};
+use std::{hash::BuildHasherDefault, mem, sync::{RwLock, mpsc::{channel, Sender}}, time::Instant};
 
 #[derive(Debug)]
 struct Creature {
@@ -30,6 +30,7 @@ impl Creature {
 #[derive(Debug)]
 struct Area {
     key_creature: Option<usize>,
+    vacant: bool,
     param: usize,
     smth: f64,
 }
@@ -38,6 +39,7 @@ impl Area {
     pub fn new() -> Area {
         Area {
             key_creature: None,
+            vacant: true,
             param: 0,
             smth: 123.123,
         }
@@ -110,24 +112,20 @@ fn fill_world_population(
             Some(c) => panic!("Area already contains creature {:?}", c),
             None => {
                 a.key_creature = Some(i);
+                a.vacant = false;
             }
         }
     }
     println!("{:.3} sec", t0.elapsed().as_secs_f64());
 }
 
-fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_size: usize) {
+fn threads_processing(world: &mut World, population: &mut Population, free_creature_keys: &mut Vec<usize>, pop_chunk_size: usize) {
     // logic in threads
     let t0 = Instant::now();
     let keys = population.creatures.keys().collect::<Vec<&usize>>();
-
-    
     let mut new_creatures = Vec::<Creature>::new();
-    
     crossbeam::scope(|s| {
         let (tx, rx) = channel::<Creature>();
-
-        
         let world = &world;
         let population = &population;
         let mut threads_num = 0;
@@ -151,22 +149,48 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
     let threads_eps = t0.elapsed().as_secs_f64();
     println!("Thread time: {:.3} sec", threads_eps);
 
-    
-    //new_creatures.push(rx.recv().unwrap());
-
-
     // remove creatures if to_remove == true
-    print!("Removing creatures: ");
     let t0 = Instant::now();
+    let mut num: usize = 0;
     population
         .creatures
-        .retain(|_, v| !v.get_mut().unwrap().to_remove);
+        .retain(|k, v| {
+            if !v.get_mut().unwrap().to_remove {
+                true
+            } else {
+                num += 1;
+                free_creature_keys.push(*k);
+                false
+            }
+        });
     let remove_eps = t0.elapsed().as_secs_f64();
-    println!("{:.3} sec", remove_eps);
+    println!("Removing {} creatures: {:.3} sec", num, remove_eps);
 
     // place new creatures
-    println!("New creatures: {}", new_creatures.len());
-
+    let t0 = Instant::now();
+    println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
+    while !new_creatures.is_empty() {
+        let c_opt = new_creatures.pop();
+        match c_opt {
+            Some(c) => {
+                let key_opt = free_creature_keys.pop();
+                let key: usize;
+                match key_opt {
+                    Some(value) => key = value,
+                    None => key = population.creatures.len(),
+                }
+                let a = world.areas.get_mut(&c.key_area).unwrap().get_mut().unwrap();
+                a.key_creature = Some(key);
+                assert!(!a.vacant, "vacant must be already false");
+                let insert_opt = population.creatures.insert(key, RwLock::new(c));
+                assert!(insert_opt.is_none(), "key {} already exists", key);
+            },
+            None => panic!("pop from empty new_creatures: impossible while !new_creatures.is_empty()"),
+        }
+    }
+    println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
+    let create_eps = t0.elapsed().as_secs_f64();
+    println!("Place new creatures {:.3} sec", create_eps);
 }
 
 fn structure_test(world: &World, population: &Population, verbose: bool) {
@@ -222,6 +246,9 @@ fn structure_test(world: &World, population: &Population, verbose: bool) {
                 *key_area == m.key_area,
                 "area's key does not match corresponding capibara's key_area"
             );
+            assert!(w.vacant == false, "vacant must be false");
+        } else {
+            assert!(w.vacant == true, "vacant must be true");
         }
     });
     assert!(
@@ -263,6 +290,8 @@ fn main() {
     let mut world = World::new(TAreas::default());
     let mut population = Population::new(TCreatures::default());
 
+    let mut free_creature_keys = Vec::<usize>::new();
+
     fill_world_population(
         &mut world,
         &mut population,
@@ -287,7 +316,7 @@ fn main() {
     );
     println!();
 
-    threads_processing(&mut world, &mut population, pop_chunk_size);
+    threads_processing(&mut world, &mut population, &mut free_creature_keys, pop_chunk_size);
     println!();
 
     structure_test(&world, &population, false);
@@ -309,12 +338,9 @@ fn main() {
 }
 
 fn creature_logic(world: &World, population: &Population, key: &usize, tx: &Sender<Creature>) {
-
-    tx.send(Creature::new((0,0))).unwrap();
-
     remove_creature(world, population, key);
     move_creature(world, population, key);
-    new_creature(world, population, key);
+    new_creature(world, population, key, tx);
 }
 
 fn move_creature(world: &World, population: &Population, key: &usize) {
@@ -351,8 +377,9 @@ fn move_creature(world: &World, population: &Population, key: &usize) {
         }
         {
             let mut a = world.areas.get(&move_options[i]).unwrap().write().unwrap();
-            if a.key_creature.is_none() {
+            if a.vacant {
                 a.key_creature = Some(*key);
+                a.vacant = false;
                 move_flag = true;
             }
         }
@@ -364,6 +391,7 @@ fn move_creature(world: &World, population: &Population, key: &usize) {
             {
                 let mut a = world.areas.get(&(x, y)).unwrap().write().unwrap();
                 a.key_creature = None;
+                a.vacant = true;
             }
             break;
         }
@@ -382,13 +410,13 @@ fn remove_creature(world: &World, population: &Population, key: &usize) {
             m.to_remove = true;
             key_area = m.key_area;
         }
-        //println!("To remove: {:?}, key_area: {:?}", key, key_area);
         let mut a = world.areas.get(&key_area).unwrap().write().unwrap();
         a.key_creature = None;
+        a.vacant = true;
     }
 }
 
-fn new_creature(world: &World, population: &Population, key: &usize) {
+fn new_creature(world: &World, population: &Population, key: &usize, tx: &Sender<Creature>) {
     // if 2 nearest areas have another creature, key_creature.is_none(): new creature with proba = 0.5
     let (x, y): (usize, usize);
     {
@@ -416,28 +444,21 @@ fn new_creature(world: &World, population: &Population, key: &usize) {
     let mut empty_areas: Vec<&(usize, usize)> = Vec::new();
     nearest_keys_area.iter().for_each(|key_area| {
         let a = world.areas.get(key_area).unwrap().read().unwrap();
-        match a.key_creature {
-            None => empty_areas.push(key_area),
-            Some(key_creature) => neib.push(key_creature),
+        if a.vacant {
+            empty_areas.push(key_area);
+        } else if a.key_creature.is_some()  {
+            neib.push(a.key_creature.unwrap());
         }
     });
 
     if neib.len() > 0 && empty_areas.len() > 0 {
         let mut rng = rand::thread_rng();
         empty_areas.shuffle(&mut rng);
-        for key_area in empty_areas {
-            let key_creature: Option<usize>;
-            {
-                let a = world.areas.get(key_area).unwrap().read().unwrap();
-                key_creature = a.key_creature;
-            }
-            if key_creature.is_none() && rng.gen_range(0.0..=1.0) < 0.1 {
-                
-                //let c = RwLock::new(&population.creatures);
-                //let mut g = c.write().unwrap();
-                //g.insert(100500,  RwLock::from(Creature::new(*key_area)));
-                //population.creatures.insert(100500, RwLock::from(Creature::new(*key_area)));
-
+        for key_area in empty_areas {       
+            let mut a = world.areas.get(key_area).unwrap().write().unwrap();
+            if a.vacant && rng.gen_range(0.0..=1.0) < 0.1 {
+                a.vacant = false;
+                tx.send(Creature::new(*key_area)).unwrap();
                 return;
             }
         }
