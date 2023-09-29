@@ -179,7 +179,7 @@ fn threads_processing(world: &mut World, population: &mut Population, free_creat
                     Some(value) => key = value,
                     None => key = population.creatures.len(),
                 }
-                let a = world.areas.get_mut(&c.key_area).unwrap().get_mut().unwrap();
+                let a = world.areas.get_mut(&c.key_area).unwrap().get_mut().unwrap(); // tudo: try to par this
                 a.key_creature = Some(key);
                 assert!(!a.vacant, "vacant must be already false");
                 let insert_opt = population.creatures.insert(key, RwLock::new(c));
