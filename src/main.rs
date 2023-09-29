@@ -2,17 +2,13 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use std::sync::Arc;
-use std::time::Instant;
-use std::{hash::BuildHasherDefault, sync::RwLock};
-
 use crossbeam;
 use indexmap::IndexMap;
 use nohash_hasher::BuildNoHashHasher;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use seahash::SeaHasher;
-use std::{default, mem, thread, vec};
+use std::{hash::BuildHasherDefault, mem, sync::{RwLock, mpsc::{channel, Sender}}, time::Instant, thread};
 
 #[derive(Debug)]
 struct Creature {
@@ -125,30 +121,52 @@ fn threads_processing(world: &mut World, population: &mut Population, pop_chunk_
     let t0 = Instant::now();
     let keys = population.creatures.keys().collect::<Vec<&usize>>();
 
+    
+    let mut new_creatures = Vec::<Creature>::new();
+    
     crossbeam::scope(|s| {
+        let (tx, rx) = channel::<Creature>();
+
+        
         let world = &world;
         let population = &population;
         let mut threads_num = 0;
         for keys_chunk in keys.chunks(pop_chunk_size) {
             threads_num += 1;
+            let tx = tx.clone();
             s.spawn(move |_| {
                 keys_chunk
                     .iter()
-                    .for_each(|key| creature_logic(world, population, *key));
+                    .for_each(|key| creature_logic(world, population, *key, &tx));
             });
         }
         println!("Spawned threads: {}", threads_num);
+
+        drop(tx);
+        while let Ok(msg) = rx.recv() {
+            new_creatures.push(msg);
+        }
     })
     .unwrap();
-    let thread_eps = t0.elapsed().as_secs_f64();
-    println!("Thread time: {:.3} sec", thread_eps);
+    let threads_eps = t0.elapsed().as_secs_f64();
+    println!("Thread time: {:.3} sec", threads_eps);
+
+    
+    //new_creatures.push(rx.recv().unwrap());
+
 
     // remove creatures if to_remove == true
     print!("Removing creatures: ");
     let t0 = Instant::now();
-    population.creatures.retain(|_, v| !v.get_mut().unwrap().to_remove );
+    population
+        .creatures
+        .retain(|_, v| !v.get_mut().unwrap().to_remove);
     let remove_eps = t0.elapsed().as_secs_f64();
     println!("{:.3} sec", remove_eps);
+
+    // place new creatures
+    println!("New creatures: {}", new_creatures.len());
+
 }
 
 fn structure_test(world: &World, population: &Population, verbose: bool) {
@@ -234,49 +252,12 @@ fn get_pop_size(pop: &Population) -> (usize, usize) {
     )
 }
 
-// fn creature_logic_example(world: &World, population: &Population, keys: &[&usize]) {
-//     let k = *keys.first().unwrap();
-//     let kk = *keys.last().unwrap();
-
-//     {
-//         // Mutate any creature (first from the key_chunk)
-//         let mut m = population.get(k).unwrap().write().unwrap();
-//         m.param = rand::thread_rng().gen_range(0..500);
-//     }
-
-//     {
-//         // Mark any creature (first from the key_chunk) to remove
-//         let mut m = population.get(k).unwrap().write().unwrap();
-//         m.to_remove = true;
-//     }
-
-//     {
-//         // Mutate area
-//         let m = population.get(k).unwrap().read().unwrap();
-//         let mut w = world.get(&m.key_area).unwrap().write().unwrap();
-//         w.param = 555;
-//     }
-
-//     {
-//         // Mark creature to move
-//         let key_target_area = rand::thread_rng().gen_range(0..world.len());
-//         if *kk != key_target_area {
-//             let mut w = world.get(&key_target_area).unwrap().write().unwrap();
-//             if w.vacant == true {
-//                 let mut m = population.get(kk).unwrap().write().unwrap();
-//                 w.vacant = false;
-//                 m.to_move = Some(key_target_area);
-//             }
-//         }
-//     }
-// }
-
 fn main() {
-    let world_size_x: usize = 3840;
-    let world_size_y: usize = 2160;
+    let world_size_x: usize = 2000;
+    let world_size_y: usize = 2000;
 
-    let pop_size = 5_000_000;
-    let pop_chunk_size: usize = 250_000;
+    let pop_size = 1_000_000;
+    let pop_chunk_size: usize = 50_000;
 
     let world_size = world_size_x * world_size_y;
     let mut world = World::new(TAreas::default());
@@ -327,17 +308,22 @@ fn main() {
     );
 }
 
-fn creature_logic(world: &World, population: &Population, key: &usize) {
+fn creature_logic(world: &World, population: &Population, key: &usize, tx: &Sender<Creature>) {
+
+    tx.send(Creature::new((0,0))).unwrap();
+
     remove_creature(world, population, key);
     move_creature(world, population, key);
-    //new_creature(world, population, key);
+    new_creature(world, population, key);
 }
 
 fn move_creature(world: &World, population: &Population, key: &usize) {
     let (x, y): (usize, usize);
     {
         let m = population.creatures.get(key).unwrap().read().unwrap();
-        if m.to_remove { return; }
+        if m.to_remove {
+            return;
+        }
         (x, y) = m.key_area;
     }
     // Get free areas nearly
@@ -390,7 +376,9 @@ fn remove_creature(world: &World, population: &Population, key: &usize) {
         let key_area: (usize, usize);
         {
             let mut m = population.creatures.get(key).unwrap().write().unwrap();
-            if m.to_remove { return; }
+            if m.to_remove {
+                return;
+            }
             m.to_remove = true;
             key_area = m.key_area;
         }
@@ -405,7 +393,9 @@ fn new_creature(world: &World, population: &Population, key: &usize) {
     let (x, y): (usize, usize);
     {
         let m = population.creatures.get(key).unwrap().read().unwrap();
-        if m.to_remove { return; }
+        if m.to_remove {
+            return;
+        }
         (x, y) = m.key_area;
     }
 
@@ -428,30 +418,28 @@ fn new_creature(world: &World, population: &Population, key: &usize) {
         let a = world.areas.get(key_area).unwrap().read().unwrap();
         match a.key_creature {
             None => empty_areas.push(key_area),
-            Some(key_creature) => neib.push(key_creature)
+            Some(key_creature) => neib.push(key_creature),
         }
-        
     });
 
     if neib.len() > 0 && empty_areas.len() > 0 {
         let mut rng = rand::thread_rng();
         empty_areas.shuffle(&mut rng);
         for key_area in empty_areas {
-
-
             let key_creature: Option<usize>;
             {
                 let a = world.areas.get(key_area).unwrap().read().unwrap();
                 key_creature = a.key_creature;
             }
             if key_creature.is_none() && rng.gen_range(0.0..=1.0) < 0.1 {
-
+                
+                //let c = RwLock::new(&population.creatures);
+                //let mut g = c.write().unwrap();
+                //g.insert(100500,  RwLock::from(Creature::new(*key_area)));
                 //population.creatures.insert(100500, RwLock::from(Creature::new(*key_area)));
 
                 return;
             }
-
-
         }
     }
 }
