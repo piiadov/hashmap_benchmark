@@ -168,7 +168,7 @@ fn threads_processing(world: &mut World, population: &mut Population, free_creat
 
     // place new creatures
     let t0 = Instant::now();
-    //println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
+    println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
     while !new_creatures.is_empty() {
         let c_opt = new_creatures.pop();
         match c_opt {
@@ -280,11 +280,11 @@ fn get_pop_size(pop: &Population) -> (usize, usize) {
 }
 
 fn main() {
-    let world_size_x: usize = 2000;
-    let world_size_y: usize = 2000;
+    let world_size_x: usize = 1100;
+    let world_size_y: usize = 1100;
 
     let pop_size = 1_000_000;
-    let pop_chunk_size: usize = 50_000;
+    let pop_chunk_size: usize = 100_000;
 
     let world_size = world_size_x * world_size_y;
     let mut world = World::new(TAreas::default());
@@ -316,25 +316,29 @@ fn main() {
     );
     println!();
 
-    threads_processing(&mut world, &mut population, &mut free_creature_keys, pop_chunk_size);
-    println!();
+    for epoch in 0..10 {
+        println!("\nEpoch {}", epoch);
+    
+        threads_processing(&mut world, &mut population, &mut free_creature_keys, pop_chunk_size);
+        println!();
 
-    structure_test(&world, &population, false);
-    println!();
+        structure_test(&world, &population, false);
+        println!();
 
-    let (world_len, world_capacity) = get_world_size(&world);
-    println!(
-        "World size: {:.2} MB ({:.2} MB)",
-        world_len as f64 / 1e6,
-        world_capacity as f64 / 1e6
-    );
-    let (pop_len, pop_capacity) = get_pop_size(&population);
-    println!(
-        "Population size: {:.2} MB ({:.2} MB), {} creatures",
-        pop_len as f64 / 1e6,
-        pop_capacity as f64 / 1e6,
-        population.creatures.len()
-    );
+        let (world_len, world_capacity) = get_world_size(&world);
+        println!(
+            "World size: {:.2} MB ({:.2} MB)",
+            world_len as f64 / 1e6,
+            world_capacity as f64 / 1e6
+        );
+        let (pop_len, pop_capacity) = get_pop_size(&population);
+        println!(
+            "Population size: {:.2} MB ({:.2} MB), {} creatures",
+            pop_len as f64 / 1e6,
+            pop_capacity as f64 / 1e6,
+            population.creatures.len()
+        );
+    }
 }
 
 fn creature_logic(world: &World, population: &Population, key: &usize, tx: &Sender<Creature>) {
