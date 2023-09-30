@@ -141,8 +141,8 @@ fn threads_processing(world: &mut World, population: &mut Population, free_creat
         println!("Spawned threads: {}", threads_num);
 
         drop(tx);
-        while let Ok(msg) = rx.recv() {
-            new_creatures.push(msg);
+        while let Ok(creature) = rx.recv() {
+            new_creatures.push(creature);
         }
     })
     .unwrap();
@@ -168,7 +168,7 @@ fn threads_processing(world: &mut World, population: &mut Population, free_creat
 
     // place new creatures
     let t0 = Instant::now();
-    println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
+    //println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
     while !new_creatures.is_empty() {
         let c_opt = new_creatures.pop();
         match c_opt {
@@ -188,7 +188,7 @@ fn threads_processing(world: &mut World, population: &mut Population, free_creat
             None => panic!("pop from empty new_creatures: impossible while !new_creatures.is_empty()"),
         }
     }
-    println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
+    //println!("===Population: {}, free_creature_keys: {}, new_creatures: {}", population.creatures.len(), free_creature_keys.len(), new_creatures.len());
     let create_eps = t0.elapsed().as_secs_f64();
     println!("Place new creatures {:.3} sec", create_eps);
 }
